@@ -1,9 +1,13 @@
 """M5 端到端验证：FunctionModel 模拟 LLM 调用 write_file → SSE 事件流 → confirm 落盘。"""
+
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, r"D:/workbuddy/2026-07-31-22-14-57/obsidian-agent")
+
+from pydantic_ai import ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.models.function import FunctionModel
 
 from app.agent.service import AgentDeps, AgentService
 from app.config import Settings
@@ -11,14 +15,12 @@ from app.core.backup import BackupEngine
 from app.core.indexer.fts5 import Fts5Index
 from app.core.indexer.service import IndexService
 from app.core.vault import Vault
-from pydantic_ai import ModelResponse, TextPart, ToolCallPart
-from pydantic_ai.models.function import FunctionModel
 
 tmp = Path(tempfile.mkdtemp())
 root = tmp / "vault"
 root.mkdir()
-(root / "笔记.md").write_bytes("# 笔记\n\n原文内容。".encode("utf-8"))
-(root / "日记.md").write_bytes("# 日记\n".encode("utf-8"))
+(root / "笔记.md").write_bytes("# 笔记\n\n原文内容。".encode())
+(root / "日记.md").write_bytes("# 日记\n".encode())
 
 vault = Vault(root=root)
 index = IndexService(vault=vault, backend=Fts5Index(db_path=tmp / "i.db"))
@@ -29,13 +31,17 @@ settings = Settings(vault_path=root, data_dir=tmp / "data", watch_enabled=False,
 # FunctionModel：第一次调用 write_file 工具（精确参数），之后返回文本
 calls = {"n": 0}
 
+
 def fake_model(agent_info, model_request):
     calls["n"] += 1
     if calls["n"] == 1:
-        return ModelResponse(parts=[
-            ToolCallPart(tool_name="write_file", args={"path": "笔记.md", "content": "新内容"})
-        ])
+        return ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="write_file", args={"path": "笔记.md", "content": "新内容"})
+            ]
+        )
     return ModelResponse(parts=[TextPart(content="已修改笔记，等待你的确认。")])
+
 
 svc = AgentService(vault, index, backup, settings, model=FunctionModel(fake_model))
 assert svc.available(), "FunctionModel 注入失败"
@@ -64,8 +70,9 @@ assert seen["done"] == 1
 assert vault.read("笔记.md").text == "# 笔记\n\n原文内容。", "确认前不应落盘"
 
 # 确认 → 落盘 + 索引
-deps = AgentDeps(vault=vault, index=index, backup=backup, settings=settings,
-                 pending=svc.pending, session_id="s1")
+deps = AgentDeps(
+    vault=vault, index=index, backup=backup, settings=settings, pending=svc.pending, session_id="s1"
+)
 r = svc.pending.apply("s1", op_id, deps)
 print("CONFIRM:", r)
 assert vault.read("笔记.md").text == "新内容"
