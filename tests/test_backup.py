@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from app.core.backup import BackupEngine, BackupScheduler, CronSpec, RetentionSpec
+from app.core.backup import BackupEngine, BackupError, BackupScheduler, CronSpec, RetentionSpec
 from app.core.vault import Vault
 
 
@@ -27,6 +26,7 @@ def env(tmp_path: Path) -> tuple[Vault, BackupEngine]:
 
 
 # ---------- 快照 ----------
+
 
 def test_create_snapshot(env: tuple[Vault, BackupEngine]) -> None:
     _, engine = env
@@ -58,7 +58,9 @@ def test_incremental_hardlink(env: tuple[Vault, BackupEngine]) -> None:
     assert (tree2 / "a.md").read_text(encoding="utf-8") == "# A 修改\n" * 50
 
 
-def test_hardlink_fallback_to_copy(env: tuple[Vault, BackupEngine], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_hardlink_fallback_to_copy(
+    env: tuple[Vault, BackupEngine], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """坑 #13：os.link 失败应降级为复制而非报错。"""
     import os as _os
 
@@ -79,10 +81,11 @@ def test_hardlink_fallback_to_copy(env: tuple[Vault, BackupEngine], monkeypatch:
 
 # ---------- 保留策略 ----------
 
+
 def test_retention_parse() -> None:
     spec = RetentionSpec.parse("7d,4w,3m")
     assert (spec.days, spec.weeks, spec.months) == (7, 4, 3)
-    with pytest.raises(Exception):
+    with pytest.raises(BackupError):
         RetentionSpec.parse("7x")
 
 
@@ -107,6 +110,7 @@ def test_cleanup_retention(env: tuple[Vault, BackupEngine]) -> None:
 
 
 # ---------- 恢复 ----------
+
 
 def test_backup_for_write(env: tuple[Vault, BackupEngine]) -> None:
     vault, engine = env
@@ -149,6 +153,7 @@ def test_verify_detects_corruption(env: tuple[Vault, BackupEngine]) -> None:
 
 
 # ---------- cron ----------
+
 
 def test_cron_parse_daily() -> None:
     spec = CronSpec.parse("0 2 * * *")
