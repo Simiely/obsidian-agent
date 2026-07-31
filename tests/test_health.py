@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import pytest
@@ -16,7 +15,7 @@ from app.main import create_app
 def client(tmp_path: Path):
     root = tmp_path / "vault"
     root.mkdir()
-    (root / "首页.md").write_bytes("# 首页\n".encode("utf-8"))
+    (root / "首页.md").write_bytes("# 首页\n".encode())
     settings = Settings(
         vault_path=root,
         data_dir=tmp_path / "data",
