@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.api.deps import AppServices, ensure_writable, get_services, require_auth
 from app.core.vault import FileTooLarge, PathNotAllowed
 
-router = APIRouter(
-    prefix="/api/vault", tags=["vault"], dependencies=[Depends(require_auth)]
-)
+router = APIRouter(prefix="/api/vault", tags=["vault"], dependencies=[Depends(require_auth)])
 
 
 class FileWrite(BaseModel):
@@ -27,18 +27,20 @@ class FileCreate(BaseModel):
 def tree(
     path: str = "",
     services: AppServices = Depends(get_services),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     try:
         return services.vault.tree(path)
     except (FileNotFoundError, PathNotAllowed) as e:
-        raise HTTPException(status_code=404 if isinstance(e, FileNotFoundError) else 422, detail=str(e)) from e
+        raise HTTPException(
+            status_code=404 if isinstance(e, FileNotFoundError) else 422, detail=str(e)
+        ) from e
 
 
 @router.get("/file")
 def read_file(
     path: str = Query(...),
     services: AppServices = Depends(get_services),
-) -> dict:
+) -> dict[str, Any]:
     try:
         content = services.vault.read(path)
     except FileNotFoundError as e:
@@ -62,7 +64,7 @@ def read_file(
 def write_file(
     body: FileWrite,
     services: AppServices = Depends(get_services),
-) -> dict:
+) -> dict[str, Any]:
     ensure_writable(services, body.path)
     try:
         services.vault.write(body.path, body.content)
@@ -78,7 +80,7 @@ def write_file(
 def create_file(
     body: FileCreate,
     services: AppServices = Depends(get_services),
-) -> dict:
+) -> dict[str, Any]:
     ensure_writable(services, body.path)
     try:
         services.vault.create(body.path, body.content)
@@ -94,7 +96,7 @@ def create_file(
 def delete_file(
     path: str = Query(...),
     services: AppServices = Depends(get_services),
-) -> dict:
+) -> dict[str, Any]:
     ensure_writable(services, path)
     try:
         services.vault.delete(path)
@@ -110,7 +112,7 @@ def delete_file(
 def meta(
     path: str = Query(...),
     services: AppServices = Depends(get_services),
-) -> dict:
+) -> dict[str, Any]:
     try:
         m = services.vault.meta(path)
     except FileNotFoundError as e:
