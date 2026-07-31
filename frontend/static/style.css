@@ -1,0 +1,47 @@
+/* M0 占位页样式（M4 由 Vue3 组件样式取代） */
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f8;
+  --card: #ffffff;
+  --border: #e4e4e7;
+  --text: #1f2328;
+  --muted: #6b7280;
+  --accent: #185fa5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a;
+    --card: #222327;
+    --border: #33353b;
+    --text: #e8eaed;
+    --muted: #9aa0a6;
+    --accent: #85b7eb;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+.shell { max-width: 720px; margin: 0 auto; padding: 48px 20px 32px; }
+.hero { text-align: center; margin-bottom: 28px; }
+.hero h1 { font-size: 32px; font-weight: 600; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 12px; }
+.badge {
+  display: inline-block; padding: 2px 12px; border-radius: 999px;
+  font-size: 12px; color: var(--accent); border: 1px solid var(--border);
+}
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 24px; margin-bottom: 16px;
+}
+.card h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
+.muted { color: var(--muted); font-size: 13px; }
+.status-ok { color: #1d9e75; font-weight: 600; }
+.status-err { color: #d4537e; font-weight: 600; }
+.features { margin: 0; padding-left: 20px; font-size: 14px; }
+.features li { margin-bottom: 6px; }
+footer { text-align: center; margin-top: 24px; font-size: 12px; }
