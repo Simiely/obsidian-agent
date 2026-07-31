@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 WIKILINK_RE = re.compile(r"(?<!\!)\[\[([^\]|#]+?)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
@@ -18,7 +19,7 @@ class MarkdownDoc:
 
     path: str
     title: str  # frontmatter title 或文件名
-    frontmatter: dict = field(default_factory=dict)
+    frontmatter: dict[str, Any] = field(default_factory=dict)
     body: str = ""
     tags: list[str] = field(default_factory=list)
     aliases: list[str] = field(default_factory=list)
@@ -26,7 +27,7 @@ class MarkdownDoc:
     wikilinks: list[str] = field(default_factory=list)
 
 
-def parse_frontmatter(text: str) -> tuple[dict, str]:
+def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     """识别文档开头的 `---` frontmatter，返回 (frontmatter, 正文)。
 
     未识别或格式不完整时返回 ({}, 原文本)。结束分隔符缺失时整体视为正文。
@@ -46,9 +47,9 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
     return {}, text  # 没有结束分隔符，视为普通文档
 
 
-def _parse_yaml(lines: list[str]) -> dict:
+def _parse_yaml(lines: list[str]) -> dict[str, Any]:
     """轻量 YAML 子集解析：标量 / 列表 / 引号。不支持嵌套（Obsidian 常用 frontmatter 足够）。"""
-    fm: dict = {}
+    fm: dict[str, Any] = {}
     current_key: str | None = None
     current_list: list[str] | None = None
 
@@ -86,7 +87,7 @@ def _parse_yaml(lines: list[str]) -> dict:
     return fm
 
 
-def _coerce(value: str):
+def _coerce(value: str) -> Any:
     value = _unquote(value)
     low = value.lower()
     if low == "true":
