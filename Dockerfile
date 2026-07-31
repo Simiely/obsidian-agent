@@ -22,6 +22,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # 先装依赖（利用层缓存）
 COPY pyproject.toml ./
+COPY README.md ./
 COPY app ./app
 RUN pip install --no-cache-dir .
 
