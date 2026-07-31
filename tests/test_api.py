@@ -16,8 +16,8 @@ from app.main import create_app
 def client(tmp_path: Path):
     root = tmp_path / "vault"
     (root / "sub").mkdir(parents=True)
-    (root / "检索方案.md").write_bytes("中文分词方案与 Docker 部署实践。".encode("utf-8"))
-    (root / "sub" / "笔记.md").write_bytes("第二篇笔记内容。".encode("utf-8"))
+    (root / "检索方案.md").write_bytes("中文分词方案与 Docker 部署实践。".encode())
+    (root / "sub" / "笔记.md").write_bytes("第二篇笔记内容。".encode())
     (root / ".obsidian").mkdir()
     (root / ".obsidian" / "conf.json").write_bytes(b"{}")
     settings = Settings(
@@ -43,6 +43,7 @@ def _wait_ready(client: TestClient, timeout: float = 15.0) -> None:
 
 # ---------- vault ----------
 
+
 def test_tree(client: TestClient) -> None:
     nodes = client.get("/api/vault/tree").json()
     names = {n["name"] for n in nodes}
@@ -57,9 +58,14 @@ def test_read_write_create_delete(client: TestClient) -> None:
     assert r.status_code == 200
     assert "中文分词" in r.json()["content"]
     # 写
-    r = client.put("/api/vault/file", json={"path": "检索方案.md", "content": "改后内容：向量检索。"})
+    r = client.put(
+        "/api/vault/file", json={"path": "检索方案.md", "content": "改后内容：向量检索。"}
+    )
     assert r.status_code == 200
-    assert client.get("/api/vault/file", params={"path": "检索方案.md"}).json()["content"] == "改后内容：向量检索。"
+    assert (
+        client.get("/api/vault/file", params={"path": "检索方案.md"}).json()["content"]
+        == "改后内容：向量检索。"
+    )
     # 新建
     r = client.post("/api/vault/file", json={"path": "新笔记.md", "content": "新建内容"})
     assert r.status_code == 201
@@ -72,13 +78,23 @@ def test_read_write_create_delete(client: TestClient) -> None:
 
 def test_write_rejects_escape_and_disallowed(client: TestClient) -> None:
     # 路径越界 → 422
-    assert client.put("/api/vault/file", json={"path": "../逃逸.md", "content": "x"}).status_code == 422
+    assert (
+        client.put("/api/vault/file", json={"path": "../逃逸.md", "content": "x"}).status_code
+        == 422
+    )
     # 禁写目录（.obsidian）→ 403
-    assert client.put("/api/vault/file", json={"path": ".obsidian/conf.json", "content": "x"}).status_code == 403
+    assert (
+        client.put(
+            "/api/vault/file", json={"path": ".obsidian/conf.json", "content": "x"}
+        ).status_code
+        == 403
+    )
     # 非 md → 422
     assert client.put("/api/vault/file", json={"path": "a.txt", "content": "x"}).status_code == 422
     # 不存在 → 404
-    assert client.put("/api/vault/file", json={"path": "不存在.md", "content": "x"}).status_code == 404
+    assert (
+        client.put("/api/vault/file", json={"path": "不存在.md", "content": "x"}).status_code == 404
+    )
 
 
 def test_meta(client: TestClient) -> None:
@@ -88,6 +104,7 @@ def test_meta(client: TestClient) -> None:
 
 
 # ---------- search ----------
+
 
 def test_search_hit(client: TestClient) -> None:
     r = client.get("/api/search", params={"q": "中文分词"})
@@ -106,6 +123,7 @@ def test_search_no_match(client: TestClient) -> None:
 
 # ---------- index ----------
 
+
 def test_index_status_and_rebuild(client: TestClient) -> None:
     st = client.get("/api/index/status").json()
     assert st["state"] == "ready"
@@ -115,6 +133,7 @@ def test_index_status_and_rebuild(client: TestClient) -> None:
 
 
 # ---------- backup ----------
+
 
 def test_backup_flow(client: TestClient) -> None:
     # 立即快照（后台任务）
@@ -158,6 +177,7 @@ def _wait_snapshots(client: TestClient, expected: int, timeout: float = 15.0) ->
 
 # ---------- auth ----------
 
+
 def test_auth_required_when_token_set(tmp_path: Path) -> None:
     root = tmp_path / "vault"
     root.mkdir()
@@ -177,6 +197,7 @@ def test_auth_required_when_token_set(tmp_path: Path) -> None:
 
 
 # ---------- agent ----------
+
 
 def test_agent_chat_requires_llm(client: TestClient) -> None:
     """未配置 LLM 时 chat 返回 400 而非 500。"""
