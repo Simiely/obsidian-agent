@@ -124,3 +124,84 @@ def test_status(svc: tuple[Vault, IndexService]) -> None:
     assert status["totalFiles"] == 2
     assert status["backend"] == "fts5"
     assert status["lastFullAt"]
+
+
+# ---------- 并发安全（坑：单连接跨线程 segfault，GitHub Actions 实测）----------
+
+
+def test_concurrent_build_and_query(index: Fts5Index) -> None:
+    """三线程并发：全量重建 + 查询 + 增量写。锁缺失时 Linux 上会 segfault。"""
+    import threading
+
+    docs_seed = [
+        ("a.md", "中文分词方案"),
+        ("b.md", "Docker 部署实践"),
+        ("c.md", "检索性能对比"),
+    ]
+
+    def make_docs() -> list:
+        # 模拟 IndexService 行为：body 入库前需 jieba 预分词（Fts5Index 假定已分词）
+        from app.core.indexer.base import IndexDoc
+        from app.core.indexer.fts5 import tokenize
+
+        return [
+            IndexDoc(path=p, title=t, body=tokenize(t), tags="", body_original=t, mtime_ns=0)
+            for p, t in docs_seed
+        ]
+
+    errors: list[BaseException] = []
+    stop = threading.Event()
+
+    def worker_build() -> None:
+        try:
+            while not stop.is_set():
+                index.build(make_docs(), batch_size=1)
+        except BaseException as e:  # noqa: BLE001
+            errors.append(e)
+
+    def worker_query() -> None:
+        try:
+            while not stop.is_set():
+                index.total_docs()
+                index.search_rows("中文", 10, 0)
+        except BaseException as e:  # noqa: BLE001
+            errors.append(e)
+
+    def worker_upsert() -> None:
+        from app.core.indexer.base import IndexDoc
+
+        try:
+            i = 0
+            while not stop.is_set():
+                i += 1
+                index.upsert(
+                    IndexDoc(
+                        path="live.md",
+                        title=f"更新{i}",
+                        body=f"内容{i}",
+                        tags="",
+                        body_original=f"内容{i}",
+                        mtime_ns=i,
+                    )
+                )
+        except BaseException as e:  # noqa: BLE001
+            errors.append(e)
+
+    ts = [
+        threading.Thread(target=worker_build),
+        threading.Thread(target=worker_query),
+        threading.Thread(target=worker_upsert),
+    ]
+    for t in ts:
+        t.start()
+    import time
+
+    time.sleep(1.5)  # 并发窗口
+    stop.set()
+    for t in ts:
+        t.join(timeout=10)
+
+    assert not errors, f"并发操作异常: {errors}"
+    # 锁未死锁、操作全部正常；结束后重建确认可用
+    index.build(make_docs(), batch_size=1)
+    assert index.count("中文") >= 1
