@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import difflib
 from pathlib import Path
+from typing import Any
 
 from app.config import Settings
 from app.core.backup import BackupEngine
-from app.core.vault import Vault, PathNotAllowed
+from app.core.vault import PathNotAllowed, Vault
 
 
 class SafetyError(Exception):
@@ -35,9 +36,7 @@ def check_writable(vault: Vault, settings: Settings, rel: str) -> None:
 
 def render_diff(old: str, new: str, max_lines: int = 60) -> str:
     """生成统一 diff（截断防止撑爆上下文）。"""
-    diff = difflib.unified_diff(
-        old.splitlines(), new.splitlines(), lineterm="", n=2
-    )
+    diff = difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm="", n=2)
     lines = list(diff)
     if len(lines) > max_lines:
         lines = lines[:max_lines] + [f"... (diff 过长，已截断，共 {len(lines)} 行)"]
@@ -50,7 +49,7 @@ def prepare_write(
     backup: BackupEngine,
     rel: str,
     content: str,
-) -> dict:
+) -> dict[str, Any]:
     """写前检查：校验 → 备份原文件 → 生成 diff。返回操作元数据（不落盘）。"""
     check_writable(vault, settings, rel)
     old = vault.read(rel).text
