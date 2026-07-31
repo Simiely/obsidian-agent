@@ -13,8 +13,10 @@ import os
 import shutil
 import threading
 import uuid
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("obsidian-agent.vault")
 
@@ -40,7 +42,7 @@ class FileTooLarge(VaultError):
 class FileMeta:
     size: int
     mtime_ns: int
-    mtime: str
+    mtime: float
     encoding: str
     newline: str
 
@@ -59,7 +61,9 @@ def _decode(data: bytes) -> tuple[str, str]:
             return data.decode(enc), enc
         except UnicodeDecodeError as e:  # pragma: no cover - 异常分支
             last_err = e
-    raise VaultError(f"无法解码文件内容（尝试 utf-8/gb18030 均失败）: {last_err}")  # pragma: no cover
+    raise VaultError(
+        f"无法解码文件内容（尝试 utf-8/gb18030 均失败）: {last_err}"
+    )  # pragma: no cover
 
 
 def _detect_newline(text: str) -> str:
@@ -162,12 +166,12 @@ class Vault:
             newline=newline,
         )
 
-    def tree(self, rel: str | Path = "") -> list[dict]:
+    def tree(self, rel: str | Path = "") -> list[dict[str, Any]]:
         """目录树（相对路径、按名称排序）。tags 由 M2 markdown 解析后由 API 层补充。"""
         base = self.resolve_safe_path(rel, md_only=False) if str(rel) else self.root
         if not base.is_dir():
             raise FileNotFoundError(f"目录不存在: {rel!r}")
-        nodes: list[dict] = []
+        nodes: list[dict[str, Any]] = []
         for entry in sorted(base.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
             rel_child = entry.relative_to(self.root).as_posix()
             if entry.is_dir():
@@ -209,7 +213,9 @@ class Vault:
         """原子写：内容恒为 UTF-8 无 BOM；换行默认保留原文件风格（坑 #6）。"""
         full = self.resolve_safe_path(rel, must_exist=True, md_only=True)
         if full.stat().st_size > self.max_file_bytes:
-            raise FileTooLarge(f"文件超过 {self.max_file_bytes} 字节，禁止直接重写（可用编辑器人工处理）: {full}")
+            raise FileTooLarge(
+                f"文件超过 {self.max_file_bytes} 字节，禁止直接重写（可用编辑器人工处理）: {full}"
+            )
         target_newline = newline or self._existing_newline(full) or "\n"
         data = _normalize_newline(content, target_newline).encode("utf-8")
         self._atomic_write(full, data)
@@ -244,6 +250,7 @@ class Vault:
 
 # ---------- watchdog 监听（debounce，坑 #4） ----------
 
+
 class VaultWatcher:
     """文件变更监听：事件去重 + debounce 合并，回调 on_change(set[相对路径])。"""
 
@@ -251,7 +258,7 @@ class VaultWatcher:
         self,
         vault: Vault,
         debounce_seconds: float = 2.0,
-        on_change: callable | None = None,  # type: ignore[name-defined]
+        on_change: Callable[[set[str]], Any] | None = None,
     ) -> None:
         from watchdog.observers import Observer  # 延迟导入，非核心路径不依赖 watchdog
 
