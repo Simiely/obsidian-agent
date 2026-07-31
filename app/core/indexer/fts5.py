@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+import threading
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
@@ -65,6 +66,11 @@ class Fts5Index:
             logger.info("已加载 jieba 自定义词典: %s", userdict)
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # 单连接跨线程共享（check_same_thread=False 仅关闭检查，不代表线程安全）：
+        # 后台索引线程 / API 请求线程 / 状态轮询并发访问同一连接会导致
+        # SQLite 内部状态错乱 → Linux 上 segfault（GitHub Actions 实测崩溃）。
+        # 用 RLock 串行化全部连接操作。
+        self._lock = threading.RLock()
         self._init_schema()
 
     # ---------- schema ----------
@@ -88,35 +94,38 @@ class Fts5Index:
 
     def build(self, docs: Iterable[IndexDoc], batch_size: int = 200) -> int:
         """全量重建（先清空再分批写入）。返回索引文档数。"""
-        with self._conn:
-            self._conn.execute(f"DELETE FROM {_TABLE}")
-        count = 0
-        batch: list[tuple[Any, ...]] = []
-        for doc in docs:
-            batch.append(self._row_tuple(doc))
-            count += 1
-            if len(batch) >= batch_size:
+        with self._lock:
+            with self._conn:
+                self._conn.execute(f"DELETE FROM {_TABLE}")
+            count = 0
+            batch: list[tuple[Any, ...]] = []
+            for doc in docs:
+                batch.append(self._row_tuple(doc))
+                count += 1
+                if len(batch) >= batch_size:
+                    self._insert_batch(batch)
+                    batch.clear()
+            if batch:
                 self._insert_batch(batch)
-                batch.clear()
-        if batch:
-            self._insert_batch(batch)
-        self._set_meta("total", str(count))
-        self._set_meta("last_full_at", datetime.now().isoformat(timespec="seconds"))
-        logger.info("索引重建完成 total=%s", count)
-        return count
+            self._set_meta("total", str(count))
+            self._set_meta("last_full_at", datetime.now().isoformat(timespec="seconds"))
+            logger.info("索引重建完成 total=%s", count)
+            return count
 
     def upsert(self, doc: IndexDoc) -> None:
-        with self._conn:
-            self._conn.execute(f"DELETE FROM {_TABLE} WHERE path = ?", (doc.path,))
-            self._conn.execute(
-                f"INSERT INTO {_TABLE} (path, title, body, tags, body_original, mtime_ns) "
-                f"VALUES (?, ?, ?, ?, ?, ?)",
-                self._row_tuple(doc),
-            )
+        with self._lock:
+            with self._conn:
+                self._conn.execute(f"DELETE FROM {_TABLE} WHERE path = ?", (doc.path,))
+                self._conn.execute(
+                    f"INSERT INTO {_TABLE} (path, title, body, tags, body_original, mtime_ns) "
+                    f"VALUES (?, ?, ?, ?, ?, ?)",
+                    self._row_tuple(doc),
+                )
 
     def remove(self, path: str) -> None:
-        with self._conn:
-            self._conn.execute(f"DELETE FROM {_TABLE} WHERE path = ?", (path,))
+        with self._lock:
+            with self._conn:
+                self._conn.execute(f"DELETE FROM {_TABLE} WHERE path = ?", (path,))
 
     def _insert_batch(self, rows: list[tuple[Any, ...]]) -> None:
         with self._conn:
@@ -139,37 +148,43 @@ class Fts5Index:
             f"SELECT path, title, body_original, tags, mtime_ns FROM {_TABLE} "
             f"WHERE {_TABLE} MATCH ? ORDER BY rank LIMIT ? OFFSET ?"
         )
-        rows = self._conn.execute(sql, (q, limit, offset)).fetchall()
+        with self._lock:
+            rows = self._conn.execute(sql, (q, limit, offset)).fetchall()
         return [IndexRow(**dict(r)) for r in rows]
 
     def count(self, query: str) -> int:
         q = tokenize_query(query)
         if not q:
             return 0
-        row = self._conn.execute(
-            f"SELECT count(*) AS n FROM {_TABLE} WHERE {_TABLE} MATCH ?", (q,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT count(*) AS n FROM {_TABLE} WHERE {_TABLE} MATCH ?", (q,)
+            ).fetchone()
         return int(row["n"])
 
     def total_docs(self) -> int:
         # FTS5 空表时 count(*) 返回 NULL（已知怪癖），必须容错
-        row = self._conn.execute(f"SELECT count(*) AS n FROM {_TABLE}").fetchone()
+        with self._lock:
+            row = self._conn.execute(f"SELECT count(*) AS n FROM {_TABLE}").fetchone()
         return int(row["n"] or 0) if row else 0
 
     def last_full_at(self) -> str | None:
         return self._get_meta("last_full_at")
 
     def _set_meta(self, k: str, v: str) -> None:
-        with self._conn:
-            self._conn.execute(
-                f"INSERT INTO {_META} (k, v) VALUES (?, ?) "
-                f"ON CONFLICT(k) DO UPDATE SET v = excluded.v",
-                (k, v),
-            )
+        with self._lock:
+            with self._conn:
+                self._conn.execute(
+                    f"INSERT INTO {_META} (k, v) VALUES (?, ?) "
+                    f"ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+                    (k, v),
+                )
 
     def _get_meta(self, k: str) -> str | None:
-        row = self._conn.execute(f"SELECT v FROM {_META} WHERE k = ?", (k,)).fetchone()
+        with self._lock:
+            row = self._conn.execute(f"SELECT v FROM {_META} WHERE k = ?", (k,)).fetchone()
         return str(row["v"]) if row else None
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
