@@ -1,0 +1,142 @@
+"""索引服务编排：全量重建（进度上报）/ 增量更新 / watcher 联动 / 状态查询。
+
+对应 docs/02 §3.1 索引构建数据流：
+启动 → 扫描（忽略规则过滤）→ 解析（markdown.py）→ 分批写入（断点续传/进度）
+文件变更 → debounce → update_paths 增量
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from pathlib import Path
+
+from app.core.indexer.base import IndexDoc, IndexRow
+from app.core.markdown import parse as parse_markdown
+from app.core.markdown import strip_comment
+from app.core.vault import Vault, VaultWatcher
+
+logger = logging.getLogger("obsidian-agent.indexer.service")
+
+ProgressCallback = Callable[[int, int], None]  # (done, total)
+
+
+class IndexService:
+    def __init__(self, vault: Vault, backend) -> None:
+        self.vault = vault
+        self.backend = backend
+        self.watcher: VaultWatcher | None = None
+        self._building = False
+
+    # ---------- 文档转换 ----------
+
+    def _to_index_doc(self, rel: str, abs_path: Path) -> IndexDoc | None:
+        try:
+            raw = abs_path.read_bytes()
+        except OSError:
+            return None
+        text = _safe_decode(raw)
+        if text is None:
+            return None
+        doc = parse_markdown(text, path=rel)
+        body = strip_comment(doc.body)
+        return IndexDoc(
+            path=rel,
+            title=doc.title,
+            body=_tokenize_fields(doc.title, doc.aliases, body),
+            tags=",".join(doc.tags),  # 原文逗号连接：unicode61 可切分检索，且可还原展示
+            body_original=body,
+            mtime_ns=abs_path.stat().st_mtime_ns,
+        )
+
+    # ---------- 全量 / 增量 ----------
+
+    def full_rebuild(self, progress: ProgressCallback | None = None) -> dict:
+        """全量重建（幂等）。progress 回调 (done, total)，total 先扫描统计。"""
+        if self._building:
+            raise RuntimeError("索引正在构建中")
+        self._building = True
+        try:
+            files = self.vault.walk_md()
+            total = len(files)
+            done = 0
+
+            def gen():
+                nonlocal done
+                for rel, abs_path in files:
+                    doc = self._to_index_doc(rel, abs_path)
+                    done += 1
+                    if progress:
+                        progress(done, total)
+                    if doc:
+                        yield doc
+
+            count = self.backend.build(gen(), batch_size=200)
+            return {"state": "ready", "total": count, "indexed": done}
+        finally:
+            self._building = False
+
+    def update_paths(self, paths: set[str]) -> dict:
+        """增量更新（watchdog 回调）：存在则 upsert，不存在则 remove。"""
+        upserted = 0
+        removed = 0
+        for rel in sorted(paths):
+            abs_path = self.vault.root / rel
+            if abs_path.is_file() and abs_path.suffix.lower() == ".md":
+                doc = self._to_index_doc(rel, abs_path)
+                if doc:
+                    self.backend.upsert(doc)
+                    upserted += 1
+            else:
+                self.backend.remove(rel)
+                removed += 1
+        if upserted or removed:
+            logger.info("增量索引 upsert=%s remove=%s", upserted, removed)
+        return {"upserted": upserted, "removed": removed}
+
+    # ---------- watcher / 状态 ----------
+
+    def start_watcher(self, debounce_seconds: float) -> None:
+        if self.watcher is not None:
+            return
+        self.watcher = VaultWatcher(
+            vault=self.vault,
+            debounce_seconds=debounce_seconds,
+            on_change=self.update_paths,
+        )
+        self.watcher.start()
+        logger.info("vault 监听已启动（debounce=%ss）", debounce_seconds)
+
+    def stop_watcher(self) -> None:
+        if self.watcher:
+            self.watcher.stop()
+            self.watcher = None
+
+    def status(self) -> dict:
+        return {
+            "state": "building" if self._building else "ready",
+            "totalFiles": self.backend.total_docs(),
+            "lastFullAt": self.backend.last_full_at(),
+            "backend": self.backend.name,
+        }
+
+    def search_rows(self, query: str, limit: int, offset: int) -> list[IndexRow]:
+        return self.backend.search_rows(query, limit, offset)
+
+    def count(self, query: str) -> int:
+        return self.backend.count(query)
+
+
+def _safe_decode(data: bytes) -> str | None:
+    for enc in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def _tokenize_fields(*fields: str) -> str:
+    from app.core.indexer.fts5 import tokenize
+
+    return " ".join(tokenize(f) for f in fields if f)
