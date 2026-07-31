@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.api.deps import AppServices, get_services, require_auth
 from app.core.backup import BackupError
 
-router = APIRouter(
-    prefix="/api/backup", tags=["backup"], dependencies=[Depends(require_auth)]
-)
+router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(require_auth)])
 
 RESTORE_CONFIRM_CODE = "RESTORE"
 
@@ -26,7 +26,7 @@ class RestoreAllBody(BaseModel):
 
 
 @router.get("/list")
-def list_backups(services: AppServices = Depends(get_services)) -> dict:
+def list_backups(services: AppServices = Depends(get_services)) -> dict[str, Any]:
     return {
         "snapshots": services.backup.list_snapshots(),
         "retention": services.backup.retention,
@@ -35,7 +35,7 @@ def list_backups(services: AppServices = Depends(get_services)) -> dict:
 
 
 @router.post("/now", status_code=202)
-def backup_now(services: AppServices = Depends(get_services)) -> dict:
+def backup_now(services: AppServices = Depends(get_services)) -> dict[str, Any]:
     try:
         services.backup_runner.run_backup("manual")
     except BackupError as e:
@@ -44,20 +44,18 @@ def backup_now(services: AppServices = Depends(get_services)) -> dict:
 
 
 @router.get("/status")
-def backup_status(services: AppServices = Depends(get_services)) -> dict:
+def backup_status(services: AppServices = Depends(get_services)) -> dict[str, Any]:
     return services.backup_runner.status()
 
 
 @router.get("/history")
-def history(path: str, services: AppServices = Depends(get_services)) -> dict:
+def history(path: str, services: AppServices = Depends(get_services)) -> dict[str, Any]:
     """单文件版本历史：来自快照 + 写前备份（pre-write）。"""
-    versions: list[dict] = []
+    versions: list[dict[str, Any]] = []
     for s in services.backup.list_snapshots():
         snap_file = services.backup.snapshot_root / s["id"] / "tree" / path
         if snap_file.is_file():
-            versions.append(
-                {"snapshotId": s["id"], "at": s["createdAt"], "source": "snapshot"}
-            )
+            versions.append({"snapshotId": s["id"], "at": s["createdAt"], "source": "snapshot"})
     pre_write = services.backup.backup_root / "pre-write" / f"{path}.bak"
     if pre_write.is_file():
         versions.append(
@@ -71,7 +69,9 @@ def history(path: str, services: AppServices = Depends(get_services)) -> dict:
 
 
 @router.post("/restore-file")
-def restore_file(body: RestoreFileBody, services: AppServices = Depends(get_services)) -> dict:
+def restore_file(
+    body: RestoreFileBody, services: AppServices = Depends(get_services)
+) -> dict[str, Any]:
     try:
         target = services.backup.restore_file(body.path, body.snapshotId)
     except BackupError as e:
@@ -81,18 +81,22 @@ def restore_file(body: RestoreFileBody, services: AppServices = Depends(get_serv
 
 
 @router.post("/restore", status_code=202)
-def restore_all(body: RestoreAllBody, services: AppServices = Depends(get_services)) -> dict:
+def restore_all(
+    body: RestoreAllBody, services: AppServices = Depends(get_services)
+) -> dict[str, Any]:
     if body.confirmCode != RESTORE_CONFIRM_CODE:
         raise HTTPException(400, "确认码错误：需输入 RESTORE")
     try:
-        services.backup_runner.run_restore(body.snapshotId, after=services.index.full_rebuild)
+        services.backup_runner.run_restore(
+            body.snapshotId, after=lambda: services.index.full_rebuild()
+        )
     except BackupError as e:
         raise HTTPException(409, str(e)) from e
     return {"ok": True, "taskId": "restore", "snapshotId": body.snapshotId}
 
 
 @router.delete("/{snap_id}")
-def delete_snapshot(snap_id: str, services: AppServices = Depends(get_services)) -> dict:
+def delete_snapshot(snap_id: str, services: AppServices = Depends(get_services)) -> dict[str, Any]:
     try:
         services.backup.delete_snapshot(snap_id)
     except BackupError as e:
