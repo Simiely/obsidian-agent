@@ -7,19 +7,21 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.agent.service import AgentService
 from app.api import routes_agent, routes_backup, routes_index, routes_search, routes_vault
 from app.api.deps import AppServices
-from app.agent.service import AgentService
 from app.config import Settings, get_settings
-from app.core.backup import BackupEngine, BackupRunner, BackupScheduler, BackupError
+from app.core.backup import BackupEngine, BackupError, BackupRunner, BackupScheduler
 from app.core.indexer.fts5 import Fts5Index
 from app.core.indexer.service import IndexService
 from app.core.search import SearchService
@@ -68,7 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI):
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # 启动：全量索引（后台线程，不阻塞启动）→ watcher → 定时备份
         if settings.watch_enabled:
             index.start_watcher(settings.watch_debounce_seconds)
@@ -81,9 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except Exception:  # pragma: no cover
                 logger.exception("初始索引失败")
 
-        boot_thread = threading.Thread(
-            target=_bootstrap, daemon=True, name="initial-index"
-        )
+        boot_thread = threading.Thread(target=_bootstrap, daemon=True, name="initial-index")
         boot_thread.start()
         yield
         index.stop_watcher()
@@ -97,7 +97,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Obsidian Agent",
-        description="Dockerized Obsidian AI workspace: browse, edit, full-text search and AI agent over your vault",
+        description=(
+            "Dockerized Obsidian AI workspace: browse, edit, "
+            "full-text search and AI agent over your vault"
+        ),
         version=APP_VERSION,
         lifespan=lifespan,
     )
@@ -116,7 +119,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(routes_agent.router)
 
     @app.get("/api/health", tags=["system"])
-    def health() -> dict:
+    def health() -> dict[str, Any]:
         st = index.status()
         return {
             "status": "ok",
@@ -127,7 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     @app.get("/api/version", tags=["system"])
-    def version() -> dict:
+    def version() -> dict[str, Any]:
         return {"version": APP_VERSION}
 
     _register_exception_handlers(app)
