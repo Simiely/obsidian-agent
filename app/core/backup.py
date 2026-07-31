@@ -17,11 +17,13 @@ import shutil
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
-from app.core.vault import Vault, VaultError, copy_file
+from app.core.vault import Vault, copy_file
 
 logger = logging.getLogger("obsidian-agent.backup")
 
@@ -169,7 +171,7 @@ class BackupEngine:
 
     # ---------- 快照 ----------
 
-    def create_snapshot(self, reason: str = "manual") -> dict:
+    def create_snapshot(self, reason: str = "manual") -> dict[str, Any]:
         if not self.enabled:
             raise BackupError("备份已禁用（BACKUP_ENABLED=false）")
         # 微秒精度：同一秒内多次快照 createdAt 仍可排序（否则增量判断退化）
@@ -224,16 +226,18 @@ class BackupEngine:
             self._write_manifest(snap_id, manifest)
         if self.auto_cleanup:
             self.cleanup_retention()
-        logger.info("快照完成 %s files=%s bytes=%s skipped=%s", snap_id, files, total_bytes, len(skipped))
+        logger.info(
+            "快照完成 %s files=%s bytes=%s skipped=%s", snap_id, files, total_bytes, len(skipped)
+        )
         return self.get_snapshot(snap_id)
 
-    def get_snapshot(self, snap_id: str) -> dict:
+    def get_snapshot(self, snap_id: str) -> dict[str, Any]:
         mf = self.snapshot_root / snap_id / SNAPSHOT_MANIFEST
         if not mf.is_file():
             raise BackupError(f"快照不存在: {snap_id}")
-        return json.loads(mf.read_text(encoding="utf-8"))
+        return cast(dict[str, Any], json.loads(mf.read_text(encoding="utf-8")))
 
-    def list_snapshots(self) -> list[dict]:
+    def list_snapshots(self) -> list[dict[str, Any]]:
         """按 createdAt 降序（id 含随机后缀，不能按 id 排序）。"""
         snaps = []
         for mf in self.snapshot_root.glob(f"*/{SNAPSHOT_MANIFEST}"):
@@ -323,7 +327,7 @@ class BackupEngine:
         copy_file(src, target)
         return target.as_posix()
 
-    def restore_all(self, snap_id: str) -> dict:
+    def restore_all(self, snap_id: str) -> dict[str, Any]:
         """整库恢复：① 强制先建恢复前快照 ② 清空 vault ③ 从快照复制回。"""
         if not self.enabled:
             raise BackupError("备份已禁用")
@@ -331,17 +335,17 @@ class BackupEngine:
         tree = self.snapshot_root / snap_id / "tree"
         if not tree.is_dir():
             raise BackupError(f"快照目录不存在: {snap_id}")
-        for rel, src in self.vault.walk_all():
+        for _rel, src in self.vault.walk_all():
             src.unlink()
         restored = 0
-        for rel, _ in self.vault.walk_all():  # 清空后残留空目录由忽略规则兜底，不处理
-            pass
         for rel in self.snapshot_files(snap_id):
             if self.vault.is_ignored(rel):
                 continue
             copy_file(tree / rel, self.vault.root / rel)
             restored += 1
-        logger.info("整库恢复完成 snap=%s restored=%s preRestoreSnap=%s", snap_id, restored, pre["id"])
+        logger.info(
+            "整库恢复完成 snap=%s restored=%s preRestoreSnap=%s", snap_id, restored, pre["id"]
+        )
         return {"snapId": snap_id, "restored": restored, "preRestoreSnap": pre["id"]}
 
     # ---------- 内部 ----------
@@ -350,7 +354,7 @@ class BackupEngine:
         """返回 createdAt 早于指定时间的最新快照 tree（用于硬链接增量）。"""
         for s in self.list_snapshots():
             if s["createdAt"] < created_at:
-                return self.snapshot_root / s["id"] / "tree"
+                return self.snapshot_root / str(s["id"]) / "tree"
         return None
 
     def _same_file(self, a: Path, b: Path) -> bool:
@@ -366,7 +370,7 @@ class BackupEngine:
             shutil.copy2(src, dst)
             return False
 
-    def _write_manifest(self, snap_id: str, manifest: dict) -> None:
+    def _write_manifest(self, snap_id: str, manifest: dict[str, Any]) -> None:
         (self.snapshot_root / snap_id / SNAPSHOT_MANIFEST).write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -378,7 +382,7 @@ class BackupRunner:
     def __init__(self, engine: BackupEngine) -> None:
         self.engine = engine
         self._thread: threading.Thread | None = None
-        self.last: dict | None = None
+        self.last: dict[str, Any] | None = None
         self.error: str | None = None
         self._kind: str | None = None
 
@@ -387,12 +391,12 @@ class BackupRunner:
             raise BackupError("已有备份/恢复任务进行中")
         self._start("backup", reason)
 
-    def run_restore(self, snap_id: str, after: callable | None = None) -> None:  # type: ignore[name-defined]
+    def run_restore(self, snap_id: str, after: Callable[[], Any] | None = None) -> None:
         if self._busy():
             raise BackupError("已有备份/恢复任务进行中")
         self._start("restore", snap_id, after)
 
-    def _start(self, kind: str, arg, after=None) -> None:
+    def _start(self, kind: str, arg: str, after: Callable[[], Any] | None = None) -> None:
         self._kind = kind
         self.error = None
         self._thread = threading.Thread(
@@ -400,7 +404,7 @@ class BackupRunner:
         )
         self._thread.start()
 
-    def _work(self, kind: str, arg, after) -> None:
+    def _work(self, kind: str, arg: str, after: Callable[[], Any] | None) -> None:
         try:
             if kind == "backup":
                 self.last = self.engine.create_snapshot(reason=arg)
@@ -415,7 +419,7 @@ class BackupRunner:
     def _busy(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
 
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         return {
             "running": self._busy(),
             "kind": self._kind,
@@ -452,6 +456,7 @@ class BackupScheduler:
         while not self._stop.is_set():
             try:
                 now = datetime.now()
+                assert self.spec is not None
                 if self._last_fired is None or now >= self.spec.next_run(self._last_fired):
                     if self._last_fired is not None:
                         self.engine.create_snapshot(reason="scheduled")
