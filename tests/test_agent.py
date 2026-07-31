@@ -22,23 +22,28 @@ from app.core.vault import Vault
 def env(tmp_path: Path) -> dict:
     root = tmp_path / "vault"
     (root / "sub").mkdir(parents=True)
-    (root / "笔记.md").write_bytes("# 笔记\n\n原文内容。".encode("utf-8"))
-    (root / "sub" / "a.md").write_bytes("子目录文档。".encode("utf-8"))
+    (root / "笔记.md").write_bytes("# 笔记\n\n原文内容。".encode())
+    (root / "sub" / "a.md").write_bytes("子目录文档。".encode())
     vault = Vault(root=root)
     index = IndexService(vault=vault, backend=Fts5Index(db_path=tmp_path / "i.db"))
     index.full_rebuild()
     backup = BackupEngine(vault=vault, backup_root=tmp_path / "backups")
     settings = Settings(
-        vault_path=root, data_dir=tmp_path / "data",
-        watch_enabled=False, backup_schedule="",
+        vault_path=root,
+        data_dir=tmp_path / "data",
+        watch_enabled=False,
+        backup_schedule="",
     )
     return {"vault": vault, "index": index, "backup": backup, "settings": settings, "root": root}
 
 
 # ---------- safety ----------
 
+
 def test_prepare_write_backup_and_diff(env: dict) -> None:
-    check = prepare_write(env["vault"], env["settings"], env["backup"], "笔记.md", "# 新标题\n\n改写内容。")
+    check = prepare_write(
+        env["vault"], env["settings"], env["backup"], "笔记.md", "# 新标题\n\n改写内容。"
+    )
     assert check["ok"]
     assert check["diff"] and "原文内容" in check["diff"]
     assert Path(check["backup_path"]).is_file()  # 写前备份已生成
@@ -71,12 +76,17 @@ def test_render_diff_truncates_long(env: dict) -> None:
 
 # ---------- pending 确认流 ----------
 
+
 def test_pending_apply_writes_and_indexes(env: dict) -> None:
     store = PendingStore()
     op = store.stage("s1", "write", "笔记.md", "# 新标题\n\n改写内容。", "/tmp/x.bak", "diff")
     deps = AgentDeps(
-        vault=env["vault"], index=env["index"], backup=env["backup"],
-        settings=env["settings"], pending=store, session_id="s1",
+        vault=env["vault"],
+        index=env["index"],
+        backup=env["backup"],
+        settings=env["settings"],
+        pending=store,
+        session_id="s1",
     )
     result = store.apply("s1", op.op_id, deps)
     assert result["applied"]
@@ -103,13 +113,18 @@ def test_pending_unknown_op(env: dict) -> None:
 
 # ---------- 工具（直接调用，deps 注入） ----------
 
+
 def test_tool_read_and_search(env: dict) -> None:
     from app.agent.service import AgentService
 
     store = PendingStore()
     deps = AgentDeps(
-        vault=env["vault"], index=env["index"], backup=env["backup"],
-        settings=env["settings"], pending=store, session_id="s1",
+        vault=env["vault"],
+        index=env["index"],
+        backup=env["backup"],
+        settings=env["settings"],
+        pending=store,
+        session_id="s1",
     )
     import asyncio
 
@@ -120,6 +135,7 @@ def test_tool_read_and_search(env: dict) -> None:
     # 直接调用工具函数（绕过 RunContext：传入构造的 deps）
     async def call():
         read = AgentService._tool_read_file
+
         # 工具内部使用 ctx.deps，构造伪 ctx
         class FakeCtx:
             def __init__(self):
@@ -148,9 +164,12 @@ def test_agent_unavailable_without_llm(env: dict) -> None:
 
 def test_agent_available_with_llm_key(env: dict) -> None:
     settings = Settings(
-        vault_path=env["root"], data_dir=env["root"].parent / "data",
-        watch_enabled=False, backup_schedule="",
-        llm_provider="deepseek", llm_api_key="sk-test-key",
+        vault_path=env["root"],
+        data_dir=env["root"].parent / "data",
+        watch_enabled=False,
+        backup_schedule="",
+        llm_provider="deepseek",
+        llm_api_key="sk-test-key",
     )
     svc = AgentService(env["vault"], env["index"], env["backup"], settings)
     assert svc.available()
