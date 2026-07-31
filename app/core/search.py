@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.indexer.service import IndexService
 
 
@@ -11,7 +13,7 @@ class SearchService:
     def __init__(self, index: IndexService) -> None:
         self.index = index
 
-    def search(self, q: str, page: int = 1, page_size: int = 20) -> dict:
+    def search(self, q: str, page: int = 1, page_size: int = 20) -> dict[str, Any]:
         if not q or not q.strip():
             return {"total": 0, "page": page, "pageSize": page_size, "results": []}
         offset = max((page - 1) * page_size, 0)
@@ -26,7 +28,13 @@ class SearchService:
                     "title": row.title,
                     "score": None,  # FTS5 rank 已用于排序，此处占位
                     "snippets": (
-                        [{"text": snippet_text, "offset": offset_chars, "length": len(snippet_text)}]
+                        [
+                            {
+                                "text": snippet_text,
+                                "offset": offset_chars,
+                                "length": len(snippet_text),
+                            }
+                        ]
                         if snippet_text
                         else []
                     ),
@@ -51,7 +59,9 @@ def _make_snippet(original: str, query: str, context: int = 40) -> tuple[str, in
     if pos < 0:
         from app.core.indexer.fts5 import tokenize_query
 
-        first = next((w for w in tokenize_query(query).split(" ") if w and w not in ('"', "")), None)
+        first = next(
+            (w for w in tokenize_query(query).split(" ") if w and w not in ('"', "")), None
+        )
         first = (first or "").strip('"')
         if first:
             pos = original.find(first)
