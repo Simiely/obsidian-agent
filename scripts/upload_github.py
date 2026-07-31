@@ -1,4 +1,11 @@
-"""GitHub 批量上传脚本：Contents API 逐文件推送（绕过 git 传输端口限制）。
+"""GitHub 批量上传脚本：Git Data API 单 commit 推送（避免逐文件触发 Actions）。
+
+流程（Git Data API，一次推送 = 一个 commit = 触发一次 Actions 构建）：
+  1. 取当前分支 HEAD commit sha 与其 tree sha（base_tree 保留未变文件）
+  2. 为每个文件创建 blob（base64）
+  3. 创建新 tree（base_tree + 变更文件；本地已删的文件置 sha=None 删除）
+  4. 创建 commit（parents=[HEAD]）
+  5. 更新分支 ref 指向新 commit
 
 用法：GH_TOKEN=ghp_xxx python scripts/upload_github.py [repo_name] [private]
 token 仅经环境变量传入，绝不写入任何文件。
@@ -10,8 +17,8 @@ import base64
 import json
 import os
 import sys
+import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -77,6 +84,21 @@ def collect_files() -> list[Path]:
     return out
 
 
+def get_remote_paths(owner: str, repo: str) -> set[str]:
+    """拉取远端 main 分支全部文件路径（用于识别本地已删除的文件）。"""
+    st, body = req("GET", f"{API}/repos/{owner}/{repo}/git/ref/heads/{BRANCH}")
+    if st == 404:
+        return set()  # 分支不存在（全新仓库）
+    assert st == 200, f"获取分支失败: {st} {body}"
+    head_sha = body["object"]["sha"]
+    st, commit = req("GET", f"{API}/repos/{owner}/{repo}/git/commits/{head_sha}")
+    assert st == 200, f"获取 commit 失败: {st} {commit}"
+    tree_sha = commit["tree"]["sha"]
+    st, tree = req("GET", f"{API}/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1")
+    assert st == 200, f"获取 tree 失败: {st} {tree}"
+    return {t["path"] for t in tree.get("tree", []) if t["type"] == "blob"}
+
+
 def main() -> None:
     # 1. 当前用户
     st, me = req("GET", f"{API}/user")
@@ -101,32 +123,78 @@ def main() -> None:
     else:
         print(f"建仓失败: {st} {body}")
 
-    # 3. 逐文件推送（存在则先取 sha 再更新，否则新建）
+    repo_api = f"{API}/repos/{owner}/{REPO_NAME}"
+
+    # 3. 收集本地文件 + 远端路径（识别删除）
     files = collect_files()
-    print(f"待推送文件: {len(files)}")
-    ok = fail = 0
+    local_paths = {f.as_posix() for f in files}
+    remote_paths = get_remote_paths(owner, REPO_NAME)
+    deleted = sorted(remote_paths - local_paths)
+    print(f"待推送: {len(files)} 新增/更新 + {len(deleted)} 删除")
+
+    # 4. 创建 blobs
+    blobs: dict[str, str] = {}
     for rel in files:
         content = base64.b64encode((ROOT / rel).read_bytes()).decode()
-        url = f"{API}/repos/{owner}/{REPO_NAME}/contents/{urllib.parse.quote(rel.as_posix())}"
-        # 查已存在文件 → 取 sha（更新必须携带）
-        st, body = req("GET", url)
-        sha = body.get("sha") if st == 200 else None
         st, body = req(
-            "PUT",
-            url,
-            {
-                "message": f"Update {rel.as_posix()}" if sha else f"Add {rel.as_posix()}",
-                "content": content,
-                "branch": BRANCH,
-                **({"sha": sha} if sha else {}),
-            },
+            "POST",
+            f"{repo_api}/git/blobs",
+            {"content": content, "encoding": "base64"},
         )
-        if st in (200, 201):
-            ok += 1
-        else:
-            fail += 1
-            print(f"  FAIL({st}): {rel} -> {body.get('message')}")
-    print(f"完成: 成功 {ok}，失败 {fail}")
+        if st != 201:
+            print(f"  FAIL blob: {rel} -> {body.get('message')}")
+            sys.exit(1)
+        blobs[rel.as_posix()] = body["sha"]
+        time.sleep(0.05)  # 限速保护
+    print(f"blobs 创建完成: {len(blobs)}")
+
+    # 5. 构建 tree 条目（含删除标记）
+    tree_entries = [
+        {"path": path, "mode": "100644", "type": "blob", "sha": sha}
+        for path, sha in blobs.items()
+    ]
+    tree_entries += [
+        {"path": path, "mode": "100644", "type": "blob", "sha": None} for path in deleted
+    ]
+
+    # 6. 取当前 HEAD（存在则用 base_tree 保留未变文件；全新仓库用空 base）
+    parent_sha: str | None = None
+    base_tree_sha: str | None = None
+    st, ref = req("GET", f"{repo_api}/git/ref/heads/{BRANCH}")
+    if st == 200:
+        parent_sha = ref["object"]["sha"]
+        st, commit = req("GET", f"{repo_api}/git/commits/{parent_sha}")
+        base_tree_sha = commit["tree"]["sha"]
+        print(f"HEAD={parent_sha[:8]} base_tree={base_tree_sha[:8]}")
+
+    body: dict = {"tree": tree_entries}
+    if base_tree_sha:
+        body["base_tree"] = base_tree_sha
+    st, tree = req("POST", f"{repo_api}/git/trees", body)
+    assert st in (200, 201), f"创建 tree 失败: {st} {tree}"
+    new_tree_sha = tree["sha"]
+    print(f"tree 创建完成: {new_tree_sha[:8]}")
+
+    # 7. 创建 commit（单 commit 包含全部变更）
+    commit_body: dict = {
+        "message": "Sync local workspace to GitHub (single commit)",
+        "tree": new_tree_sha,
+    }
+    if parent_sha:
+        commit_body["parents"] = [parent_sha]
+    st, commit = req("POST", f"{repo_api}/git/commits", commit_body)
+    assert st in (200, 201), f"创建 commit 失败: {st} {commit}"
+    new_commit_sha = commit["sha"]
+    print(f"commit 创建完成: {new_commit_sha[:8]}")
+
+    # 8. 更新分支 ref
+    st, body = req(
+        "PATCH",
+        f"{repo_api}/git/refs/heads/{BRANCH}",
+        {"sha": new_commit_sha, "force": False},
+    )
+    assert st == 200, f"更新 ref 失败: {st} {body}"
+    print(f"✅ 推送完成（单 commit）: {new_commit_sha[:8]}")
     print(f"仓库地址: https://github.com/{owner}/{REPO_NAME}")
 
 
