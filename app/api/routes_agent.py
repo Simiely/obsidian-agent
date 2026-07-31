@@ -5,17 +5,18 @@ from __future__ import annotations
 import json
 import queue
 import uuid
+from collections.abc import Iterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.agent.safety import SafetyError
+from app.agent.service import AgentDeps
 from app.api.deps import AppServices, get_services, require_auth
 
-router = APIRouter(
-    prefix="/api/agent", tags=["agent"], dependencies=[Depends(require_auth)]
-)
+router = APIRouter(prefix="/api/agent", tags=["agent"], dependencies=[Depends(require_auth)])
 
 
 class ChatBody(BaseModel):
@@ -38,7 +39,7 @@ def chat(body: ChatBody, services: AppServices = Depends(get_services)) -> Strea
     session_id = body.sessionId or uuid.uuid4().hex[:12]
     events = services.agent.run_chat(session_id, body.message)
 
-    def sse_gen():
+    def sse_gen() -> Iterator[str]:
         try:
             yield f"event: session\ndata: {json.dumps({'sessionId': session_id})}\n\n"
             while True:
@@ -49,21 +50,23 @@ def chat(body: ChatBody, services: AppServices = Depends(get_services)) -> Strea
         except queue.Empty:
             yield 'event: error\ndata: {"message": "Agent 响应超时"}\n\n'
         except Exception as e:  # pragma: no cover
-            yield f'event: error\ndata: {json.dumps({"message": str(e)}, ensure_ascii=False)}\n\n'
+            yield f"event: error\ndata: {json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(sse_gen(), media_type="text/event-stream")
 
 
 @router.post("/confirm")
-def confirm(body: ConfirmBody, services: AppServices = Depends(get_services)) -> dict:
+def confirm(body: ConfirmBody, services: AppServices = Depends(get_services)) -> dict[str, Any]:
     try:
-        return services.agent.pending.apply(body.sessionId, body.opId, _deps_for(services, body.sessionId))
+        return services.agent.pending.apply(
+            body.sessionId, body.opId, _deps_for(services, body.sessionId)
+        )
     except SafetyError as e:
         raise HTTPException(404 if "不存在" in str(e) else 409, str(e)) from e
 
 
 @router.post("/cancel")
-def cancel(body: ConfirmBody, services: AppServices = Depends(get_services)) -> dict:
+def cancel(body: ConfirmBody, services: AppServices = Depends(get_services)) -> dict[str, Any]:
     try:
         return services.agent.pending.discard(body.sessionId, body.opId)
     except SafetyError as e:
@@ -71,17 +74,20 @@ def cancel(body: ConfirmBody, services: AppServices = Depends(get_services)) -> 
 
 
 @router.get("/session")
-def session(sessionId: str, services: AppServices = Depends(get_services)) -> dict:
+def session(sessionId: str, services: AppServices = Depends(get_services)) -> dict[str, Any]:
     return services.agent.session_summary(sessionId)
 
 
-def _deps_for(services: AppServices, session_id: str):
+def _deps_for(services: AppServices, session_id: str) -> AgentDeps:
     """构造确认所需的 AgentDeps（apply 时用）。"""
     from app.agent.service import AgentDeps
 
     return AgentDeps(
-        vault=services.vault, index=services.index, backup=services.backup,
-        settings=services.settings, pending=services.agent.pending,
+        vault=services.vault,
+        index=services.index,
+        backup=services.backup,
+        settings=services.settings,
+        pending=services.agent.pending,
         session_id=session_id,
         events=queue.Queue(),
     )
