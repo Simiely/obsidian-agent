@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -103,7 +104,7 @@ class Settings(BaseSettings):
                 f"请将备份目录放到 vault 之外的路径（如 {self.data_dir / 'backups'}）。"
             )
 
-    def redacted(self) -> dict:
+    def redacted(self) -> dict[str, Any]:
         """脱敏后的配置视图（日志/`--check` 用），key 打码。"""
         data = self.model_dump()
         if data.get("llm_api_key"):
