@@ -8,10 +8,11 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
-from app.core.indexer.base import IndexDoc, IndexRow
+from app.core.indexer.base import IndexBackend, IndexDoc, IndexRow
 from app.core.markdown import parse as parse_markdown
 from app.core.markdown import strip_comment
 from app.core.vault import Vault, VaultWatcher
@@ -22,7 +23,7 @@ ProgressCallback = Callable[[int, int], None]  # (done, total)
 
 
 class IndexService:
-    def __init__(self, vault: Vault, backend) -> None:
+    def __init__(self, vault: Vault, backend: IndexBackend) -> None:
         self.vault = vault
         self.backend = backend
         self.watcher: VaultWatcher | None = None
@@ -43,7 +44,7 @@ class IndexService:
         return IndexDoc(
             path=rel,
             title=doc.title,
-            body=_tokenize_fields(doc.title, doc.aliases, body),
+            body=_tokenize_fields(doc.title, *doc.aliases, body),
             tags=",".join(doc.tags),  # 原文逗号连接：unicode61 可切分检索，且可还原展示
             body_original=body,
             mtime_ns=abs_path.stat().st_mtime_ns,
@@ -51,7 +52,7 @@ class IndexService:
 
     # ---------- 全量 / 增量 ----------
 
-    def full_rebuild(self, progress: ProgressCallback | None = None) -> dict:
+    def full_rebuild(self, progress: ProgressCallback | None = None) -> dict[str, Any]:
         """全量重建（幂等）。progress 回调 (done, total)，total 先扫描统计。"""
         if self._building:
             raise RuntimeError("索引正在构建中")
@@ -61,7 +62,7 @@ class IndexService:
             total = len(files)
             done = 0
 
-            def gen():
+            def gen() -> Iterator[IndexDoc]:
                 nonlocal done
                 for rel, abs_path in files:
                     doc = self._to_index_doc(rel, abs_path)
@@ -76,7 +77,7 @@ class IndexService:
         finally:
             self._building = False
 
-    def update_paths(self, paths: set[str]) -> dict:
+    def update_paths(self, paths: set[str]) -> dict[str, Any]:
         """增量更新（watchdog 回调）：存在则 upsert，不存在则 remove。"""
         upserted = 0
         removed = 0
@@ -112,7 +113,7 @@ class IndexService:
             self.watcher.stop()
             self.watcher = None
 
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         return {
             "state": "building" if self._building else "ready",
             "totalFiles": self.backend.total_docs(),
