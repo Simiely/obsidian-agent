@@ -17,7 +17,9 @@ def search(tmp_path: Path) -> SearchService:
     root = tmp_path / "vault"
     root.mkdir()
     for i in range(30):
-        (root / f"笔记{i}.md").write_bytes(f"这是第 {i} 篇关于中文分词方案的笔记，内容包含 docker 实践。".encode("utf-8"))
+        (root / f"笔记{i}.md").write_bytes(
+            f"这是第 {i} 篇关于中文分词方案的笔记，内容包含 docker 实践。".encode()
+        )
     vault = Vault(root=root)
     backend = Fts5Index(db_path=tmp_path / "index.db")
     svc = IndexService(vault=vault, backend=backend)
@@ -58,9 +60,7 @@ def test_result_shape(search: SearchService) -> None:
 def test_tags_splitting(tmp_path: Path) -> None:
     root = tmp_path / "vault"
     root.mkdir()
-    (root / "带标签.md").write_bytes(
-        "---\ntags:\n  - docker\n  - obsidian\n---\n内容".encode("utf-8")
-    )
+    (root / "带标签.md").write_bytes("---\ntags:\n  - docker\n  - obsidian\n---\n内容".encode())
     vault = Vault(root=root)
     backend = Fts5Index(db_path=tmp_path / "index.db")
     svc = IndexService(vault=vault, backend=backend)
