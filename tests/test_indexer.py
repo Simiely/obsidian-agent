@@ -20,14 +20,15 @@ def index(tmp_path: Path) -> Fts5Index:
 def svc(tmp_path: Path) -> tuple[Vault, IndexService]:
     root = tmp_path / "vault"
     root.mkdir()
-    (root / "检索方案.md").write_bytes("这篇文章介绍中文分词方案对比，Docker 部署实践。".encode("utf-8"))
-    (root / "其它.md").write_bytes("与检索无关的日常记录。".encode("utf-8"))
+    (root / "检索方案.md").write_bytes("这篇文章介绍中文分词方案对比，Docker 部署实践。".encode())
+    (root / "其它.md").write_bytes("与检索无关的日常记录。".encode())
     vault = Vault(root=root)
     backend = Fts5Index(db_path=tmp_path / "index.db")
     return vault, IndexService(vault=vault, backend=backend)
 
 
 # ---------- 全量构建与中文命中 ----------
+
 
 def test_build_and_chinese_hit(svc: tuple[Vault, IndexService]) -> None:
     _, svc = svc
@@ -69,10 +70,11 @@ def test_no_match(svc: tuple[Vault, IndexService]) -> None:
 
 # ---------- 增量更新 ----------
 
+
 def test_incremental_upsert(svc: tuple[Vault, IndexService]) -> None:
     vault, svc = svc
     svc.full_rebuild()
-    (vault.root / "检索方案.md").write_bytes("新增了向量检索技术讨论。".encode("utf-8"))
+    (vault.root / "检索方案.md").write_bytes("新增了向量检索技术讨论。".encode())
     svc.update_paths({"检索方案.md"})
     assert svc.count("向量检索") == 1
     assert svc.count("分词") == 0  # 旧内容已被替换
@@ -96,11 +98,12 @@ def test_rebuild_is_idempotent(svc: tuple[Vault, IndexService]) -> None:
 
 # ---------- 特殊字符与分词语义 ----------
 
+
 def test_query_with_special_chars_no_error(index: Fts5Index, tmp_path: Path) -> None:
     """含 - 的查询不应被 FTS5 当作 NOT 运算符。"""
     root = tmp_path / "vault"
     root.mkdir()
-    (root / "a.md").write_bytes("docker-compose 配置详解".encode("utf-8"))
+    (root / "a.md").write_bytes("docker-compose 配置详解".encode())
     vault = Vault(root=root)
     svc = IndexService(vault=vault, backend=index)
     svc.full_rebuild()
