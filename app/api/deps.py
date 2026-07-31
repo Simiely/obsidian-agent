@@ -28,12 +28,11 @@ class AppServices:
 
 
 def get_services(request: Request) -> AppServices:
-    return request.app.state.services
+    services: AppServices = request.app.state.services
+    return services
 
 
-async def require_auth(
-    request: Request, x_auth_token: str | None = Header(default=None)
-) -> None:
+async def require_auth(request: Request, x_auth_token: str | None = Header(default=None)) -> None:
     """AUTH_TOKEN 非空时启用简单口令认证（04-配置参考 §1.4）。"""
     settings = request.app.state.services.settings
     if settings.auth_token and x_auth_token != settings.auth_token:
