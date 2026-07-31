@@ -12,9 +12,10 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Any
 
 import jieba
 
@@ -81,9 +82,7 @@ class Fts5Index:
                     tokenize='unicode61'
                 )"""
             )
-            self._conn.execute(
-                f"CREATE TABLE IF NOT EXISTS {_META} (k TEXT PRIMARY KEY, v TEXT)"
-            )
+            self._conn.execute(f"CREATE TABLE IF NOT EXISTS {_META} (k TEXT PRIMARY KEY, v TEXT)")
 
     # ---------- 写入 ----------
 
@@ -92,7 +91,7 @@ class Fts5Index:
         with self._conn:
             self._conn.execute(f"DELETE FROM {_TABLE}")
         count = 0
-        batch: list[tuple] = []
+        batch: list[tuple[Any, ...]] = []
         for doc in docs:
             batch.append(self._row_tuple(doc))
             count += 1
@@ -119,7 +118,7 @@ class Fts5Index:
         with self._conn:
             self._conn.execute(f"DELETE FROM {_TABLE} WHERE path = ?", (path,))
 
-    def _insert_batch(self, rows: list[tuple]) -> None:
+    def _insert_batch(self, rows: list[tuple[Any, ...]]) -> None:
         with self._conn:
             self._conn.executemany(
                 f"INSERT INTO {_TABLE} (path, title, body, tags, body_original, mtime_ns) "
@@ -127,7 +126,7 @@ class Fts5Index:
                 rows,
             )
 
-    def _row_tuple(self, doc: IndexDoc) -> tuple:
+    def _row_tuple(self, doc: IndexDoc) -> tuple[Any, ...]:
         return (doc.path, doc.title, doc.body, doc.tags, doc.body_original, doc.mtime_ns)
 
     # ---------- 查询 ----------
