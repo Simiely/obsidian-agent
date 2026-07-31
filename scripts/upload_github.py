@@ -19,10 +19,20 @@ TOKEN = os.environ["GH_TOKEN"]
 ROOT = Path(__file__).resolve().parent.parent
 REPO_NAME = sys.argv[1] if len(sys.argv) > 1 else "obsidian-agent"
 PRIVATE = len(sys.argv) > 2 and sys.argv[2].lower() in ("private", "true", "1")
-DESCRIPTION = "Dockerized Obsidian AI workspace: browse, edit, full-text search and AI agent over your vault"
+DESCRIPTION = (
+    "Dockerized Obsidian AI workspace: browse, edit, full-text search and AI agent over your vault"
+)
 
-EXCLUDE_DIRS = {"node_modules", "dist", "data", "__pycache__", ".pytest_cache",
-                ".mypy_cache", ".ruff_cache", ".venv"}
+EXCLUDE_DIRS = {
+    "node_modules",
+    "dist",
+    "data",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+}
 EXCLUDE_FILES = {".env"}
 BRANCH = "main"
 
@@ -31,11 +41,16 @@ API = "https://api.github.com"
 
 def req(method: str, url: str, body: dict | None = None) -> tuple[int, dict]:
     data = json.dumps(body).encode() if body is not None else None
-    r = urllib.request.Request(url, data=data, method=method, headers={
-        "Authorization": f"token {TOKEN}",
-        "Accept": "application/vnd.github+json",
-        "Content-Type": "application/json",
-    })
+    r = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"token {TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+        },
+    )
     try:
         with urllib.request.urlopen(r, timeout=30) as resp:
             raw = resp.read()
@@ -70,9 +85,15 @@ def main() -> None:
     print(f"owner: {owner} ({me.get('name') or ''})")
 
     # 2. 创建仓库（已存在则继续）
-    st, body = req("POST", f"{API}/user/repos", {
-        "name": REPO_NAME, "description": DESCRIPTION, "private": PRIVATE,
-    })
+    st, body = req(
+        "POST",
+        f"{API}/user/repos",
+        {
+            "name": REPO_NAME,
+            "description": DESCRIPTION,
+            "private": PRIVATE,
+        },
+    )
     if st in (200, 201):
         print(f"仓库已创建: {body['html_url']}")
     elif st == 422:
@@ -80,18 +101,26 @@ def main() -> None:
     else:
         print(f"建仓失败: {st} {body}")
 
-    # 3. 逐文件推送
+    # 3. 逐文件推送（存在则先取 sha 再更新，否则新建）
     files = collect_files()
     print(f"待推送文件: {len(files)}")
     ok = fail = 0
     for rel in files:
         content = base64.b64encode((ROOT / rel).read_bytes()).decode()
         url = f"{API}/repos/{owner}/{REPO_NAME}/contents/{urllib.parse.quote(rel.as_posix())}"
-        st, body = req("PUT", url, {
-            "message": f"Add {rel.as_posix()}",
-            "content": content,
-            "branch": BRANCH,
-        })
+        # 查已存在文件 → 取 sha（更新必须携带）
+        st, body = req("GET", url)
+        sha = body.get("sha") if st == 200 else None
+        st, body = req(
+            "PUT",
+            url,
+            {
+                "message": f"Update {rel.as_posix()}" if sha else f"Add {rel.as_posix()}",
+                "content": content,
+                "branch": BRANCH,
+                **({"sha": sha} if sha else {}),
+            },
+        )
         if st in (200, 201):
             ok += 1
         else:
