@@ -1,0 +1,53 @@
+# ===== Obsidian Agent · Docker Compose =====
+# 使用：cp .env.example .env → 修改 .env（VAULT_PATH 等）→ docker compose up -d
+services:
+  app:
+    build: .
+    container_name: obsidian-agent
+    ports:
+      - "8080:8080"               # 改左侧端口可换宿主机端口
+    volumes:
+      - ${VAULT_PATH:-./vaults}:/vault:rw   # ← 宿主机 Obsidian 库
+      - ./data:/data                        # 索引库 + 备份（持久化）
+    environment:
+      VAULT_PATH: /vault
+      DATA_DIR: /data
+      PUID: ${PUID:-1000}         # Linux: id -u
+      PGID: ${PGID:-1000}         # Linux: id -g
+      TZ: ${TZ:-Asia/Shanghai}
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # ---- 可选：原版 Obsidian 网页版（F21，浏览/编辑体验增强）----
+  # ignis:
+  #   image: nobbe/ignis:latest
+  #   container_name: obsidian-agent-ignis
+  #   ports:
+  #     - "44682:8080"
+  #   environment:
+  #     - PUID=${PUID:-1000}
+  #     - PGID=${PGID:-1000}
+  #   volumes:
+  #     - ${VAULT_PATH:-./vaults}:/vaults:rw
+  #     - ./data/ignis:/app/data
+  #   restart: unless-stopped
+
+  # ---- 可选：Meilisearch（仅 INDEX_BACKEND=meili 时启用）----
+  # meilisearch:
+  #   image: getmeili/meilisearch:v1.11
+  #   container_name: obsidian-agent-meili
+  #   environment:
+  #     - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-obsidian-agent-dev-key}
+  #   volumes:
+  #     - ./data/meili:/meili_data
+  #   restart: unless-stopped
