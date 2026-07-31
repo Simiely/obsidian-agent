@@ -14,8 +14,8 @@ def vault(tmp_path: Path) -> Vault:
     root = tmp_path / "vault"
     (root / "Projects" / "Obsidian").mkdir(parents=True)
     # 注意：Windows 上 Path.write_text 会做 \n→\r\n 转换，fixture 统一用 write_bytes 保证确定性
-    (root / "Projects" / "Obsidian" / "插件开发.md").write_bytes("# 插件开发\n\n正文\n".encode("utf-8"))
-    (root / "日记.md").write_bytes("# 日记\n".encode("utf-8"))
+    (root / "Projects" / "Obsidian" / "插件开发.md").write_bytes("# 插件开发\n\n正文\n".encode())
+    (root / "日记.md").write_bytes("# 日记\n".encode())
     (root / ".obsidian").mkdir()
     (root / ".obsidian" / "workspace.json").write_bytes(b"{}")
     (root / "node_modules").mkdir()
@@ -26,6 +26,7 @@ def vault(tmp_path: Path) -> Vault:
 
 
 # ---------- 目录树 / 忽略 ----------
+
 
 def test_tree_basic(vault: Vault) -> None:
     nodes = vault.tree()
@@ -64,6 +65,7 @@ def test_is_ignored(vault: Vault) -> None:
 
 # ---------- 读写与编码（坑 #6） ----------
 
+
 def test_read_utf8(vault: Vault) -> None:
     content = vault.read("日记.md")
     assert content.text == "# 日记\n"
@@ -73,7 +75,7 @@ def test_read_utf8(vault: Vault) -> None:
 def test_read_utf8_bom(tmp_path: Path) -> None:
     root = tmp_path / "vault"
     root.mkdir()
-    (root / "bom.md").write_bytes(b"\xef\xbb\xbf" + "# BOM 标题\n".encode("utf-8"))
+    (root / "bom.md").write_bytes(b"\xef\xbb\xbf" + "# BOM 标题\n".encode())
     v = Vault(root=root)
     assert v.read("bom.md").text == "# BOM 标题\n"
 
@@ -89,11 +91,11 @@ def test_read_gbk(tmp_path: Path) -> None:
 def test_write_preserves_crlf(tmp_path: Path) -> None:
     root = tmp_path / "vault"
     root.mkdir()
-    (root / "win.md").write_bytes("# 标题\r\n第一行\r\n".encode("utf-8"))
+    (root / "win.md").write_bytes("# 标题\r\n第一行\r\n".encode())
     v = Vault(root=root)
     v.write("win.md", "# 新标题\n第二行")
     raw = (root / "win.md").read_bytes()
-    assert raw == "# 新标题\r\n第二行".encode("utf-8")  # 换行保留 CRLF
+    assert raw == "# 新标题\r\n第二行".encode()  # 换行保留 CRLF
     assert b"\xef\xbb\xbf" not in raw  # 无 BOM
 
 
@@ -123,9 +125,17 @@ def test_create_and_delete(vault: Vault) -> None:
 
 # ---------- 路径安全（坑 #7） ----------
 
+
 @pytest.mark.parametrize(
     "bad",
-    ["../secret.txt", "..\\secret.txt", "../../etc/passwd", "C:/Windows/win.ini", "D:\\x.md", "/etc/passwd"],
+    [
+        "../secret.txt",
+        "..\\secret.txt",
+        "../../etc/passwd",
+        "C:/Windows/win.ini",
+        "D:\\x.md",
+        "/etc/passwd",
+    ],
 )
 def test_resolve_rejects_escape(vault: Vault, bad: str) -> None:
     with pytest.raises(PathNotAllowed):
@@ -143,6 +153,7 @@ def test_resolve_missing_raises(vault: Vault) -> None:
 
 
 # ---------- 监听（debounce） ----------
+
 
 def test_watcher_debounce(tmp_path: Path) -> None:
     import time
