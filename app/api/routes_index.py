@@ -3,26 +3,23 @@
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import AppServices, get_services, require_auth
 
-router = APIRouter(
-    prefix="/api/index", tags=["index"], dependencies=[Depends(require_auth)]
-)
+router = APIRouter(prefix="/api/index", tags=["index"], dependencies=[Depends(require_auth)])
 
 
 @router.get("/status")
-def status(services: AppServices = Depends(get_services)) -> dict:
+def status(services: AppServices = Depends(get_services)) -> dict[str, Any]:
     return services.index.status()
 
 
 @router.post("/rebuild", status_code=202)
-def rebuild(services: AppServices = Depends(get_services)) -> dict:
+def rebuild(services: AppServices = Depends(get_services)) -> dict[str, Any]:
     if services.index._building:  # noqa: SLF001 - 索引服务内部状态
         raise HTTPException(409, "索引正在构建中")
-    threading.Thread(
-        target=services.index.full_rebuild, daemon=True, name="api-rebuild"
-    ).start()
+    threading.Thread(target=services.index.full_rebuild, daemon=True, name="api-rebuild").start()
     return {"ok": True, "message": "全量重建已启动"}
