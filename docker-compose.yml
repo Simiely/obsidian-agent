@@ -15,7 +15,7 @@ services:
     # 家庭内网部署用 root 运行最简单可靠。
     user: root
     ports:
-      - "2512:8080"               # 左侧为宿主机端口（2511 已被 learning-platform 占用），可改
+      - "4329:8080"               # 左侧为宿主机端口，可改
     environment:
       # 容器内固定路径（与 volumes 对应，勿改）
       - VAULT_PATH=/vault
