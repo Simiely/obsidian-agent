@@ -1,4 +1,5 @@
 """M4 冒烟：真实 uvicorn 服务 + Vue dist + API 全链路（含编辑保存）。"""
+
 import json
 import re
 import sys
@@ -7,6 +8,8 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
+
+import uvicorn
 
 sys.path.insert(0, r"D:/workbuddy/2026-07-31-22-14-57/obsidian-agent")
 
@@ -22,13 +25,12 @@ note = (
     "> [!tip] 提示\n> 这是一个提示 callout。\n\n- [ ] 待办事项\n"
 )
 (root / "Projects" / "Docker 部署.md").write_bytes(note.encode("utf-8"))
-(root / "日记.md").write_bytes("# 日记\n\n2026-07-31 的记录。".encode("utf-8"))
+(root / "日记.md").write_bytes("# 日记\n\n2026-07-31 的记录。".encode())
 
-settings = Settings(vault_path=root, data_dir=tmp / "data", watch_enabled=False,
-                    backup_schedule="", port=8899)
+settings = Settings(
+    vault_path=root, data_dir=tmp / "data", watch_enabled=False, backup_schedule="", port=8899
+)
 app = create_app(settings)
-
-import uvicorn
 
 server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=8899, log_level="warning"))
 threading.Thread(target=server.run, daemon=True).start()
@@ -41,16 +43,20 @@ for _ in range(60):
     except Exception:
         time.sleep(0.2)
 
+
 def get(path):
     with urllib.request.urlopen(BASE + path, timeout=5) as r:
         return json.loads(r.read())
 
+
 def req(method, path, body=None):
     data = json.dumps(body).encode() if body else None
-    r = urllib.request.Request(BASE + path, data=data, method=method,
-                               headers={"Content-Type": "application/json"})
+    r = urllib.request.Request(
+        BASE + path, data=data, method=method, headers={"Content-Type": "application/json"}
+    )
     with urllib.request.urlopen(r, timeout=5) as resp:
         return resp.status, json.loads(resp.read() or b"{}")
+
 
 # 等索引就绪
 for _ in range(60):
@@ -98,8 +104,9 @@ for _ in range(30):
         break
     time.sleep(0.2)
 snap_id = get("/api/backup/list")["snapshots"][0]["id"]
-st, _ = req("POST", "/api/backup/restore-file",
-            {"path": "Projects/Docker 部署.md", "snapshotId": snap_id})
+st, _ = req(
+    "POST", "/api/backup/restore-file", {"path": "Projects/Docker 部署.md", "snapshotId": snap_id}
+)
 assert st == 200
 print("PASS 备份快照 + 单文件恢复")
 
