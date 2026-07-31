@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Iterable, Protocol
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Protocol
 
 
 @dataclass
@@ -32,7 +33,7 @@ class IndexBackend(Protocol):
 
     name: str
 
-    def build(self, docs: Iterable[IndexDoc], batch_size: int = 200) -> None: ...
+    def build(self, docs: Iterable[IndexDoc], batch_size: int = 200) -> int: ...
 
     def upsert(self, doc: IndexDoc) -> None: ...
 
