@@ -33,9 +33,17 @@ def test_llm_resolved_model() -> None:
     assert Settings(llm_provider="deepseek", llm_model="custom-x").llm_resolved_model == "custom-x"
 
 
-def test_resolved_backup_dir_defaults_to_data() -> None:
+def test_resolved_backup_dir_defaults_to_project() -> None:
+    """默认备份目录 = 项目根/backups（Docker 部署挂载 /app/backups 方便）。"""
     s = Settings(data_dir=Path("/data"))
-    assert s.resolved_backup_dir == Path("/data/backups")
+    project_root = Path(__file__).resolve().parent.parent
+    assert s.resolved_backup_dir == project_root / "backups"
+
+
+def test_resolved_backup_dir_custom_override() -> None:
+    """显式配置 backup_dir 时优先使用。"""
+    s = Settings(backup_dir=Path("/custom/backups"))
+    assert s.resolved_backup_dir == Path("/custom/backups")
 
 
 def test_validate_paths_ok_when_outside_vault(tmp_path: Path) -> None:

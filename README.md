@@ -2,7 +2,7 @@
 
 > 一个 Docker 化的 Obsidian 知识库 AI 助手 —— 指定 vault 路径即可浏览、编辑、全文检索所有 Markdown 文档，并通过 AI Agent 用自然语言操作你的笔记。
 
-![Status](https://img.shields.io/badge/status-规划中-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Status](https://img.shields.io/badge/status-可用-green) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
 
@@ -85,11 +85,13 @@ obsidian-agent/
 │   │   ├── loop.py         #   运行器：会话/HITL 批准
 │   │   └── safety.py       #   编辑安全：备份/diff/路径白名单
 │   └── api/                # REST API 路由
-├── frontend/               # 🖥 前端（Vue3 + Vite，remark 渲染 Obsidian 语法）
+├── frontend/               # 🖥 前端（Vue3 + Vite，markdown-it 渲染 Obsidian 语法）
 │   └── src/
-│       ├── views/          #   Browser / Editor / Search / Chat
-│       ├── components/
-│       └── api/            #   后端接口封装
+│       ├── App.vue         #   编排层（业务全在 composables）
+│       ├── components/     #   视图组件（DocView / FileTree / BackupPanel / ...）
+│       ├── use*.js         #   composables（useVaultDocs / useHashRouter / useToc / ...）
+│       ├── api/            #   后端接口封装
+│       └── md.js + mdEnhance.js   # 渲染 + DOM 增强分离
 ├── data/                   # 索引与备份数据（Docker volume）
 └── tests/                  # pytest 测试（含中文检索/Obsidian 语法用例）
 ```

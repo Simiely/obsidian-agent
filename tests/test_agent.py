@@ -31,6 +31,7 @@ def env(tmp_path: Path) -> dict:
     settings = Settings(
         vault_path=root,
         data_dir=tmp_path / "data",
+        backup_dir=tmp_path / "backups",
         watch_enabled=False,
         backup_schedule="",
     )
@@ -166,6 +167,7 @@ def test_agent_available_with_llm_key(env: dict) -> None:
     settings = Settings(
         vault_path=env["root"],
         data_dir=env["root"].parent / "data",
+        backup_dir=env["root"].parent / "backups",
         watch_enabled=False,
         backup_schedule="",
         llm_provider="deepseek",

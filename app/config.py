@@ -46,32 +46,44 @@ class Settings(BaseSettings):
 
     # ---- 备份 ----
     backup_enabled: bool = True
-    backup_dir: Path | None = None  # 默认 {data_dir}/backups
-    backup_schedule: str = "0 2 * * *"
+    # 默认 {项目根}/backups —— 项目内新目录，Docker 部署时挂载宿主卷到 /app/backups 即可
+    backup_dir: Path | None = None
+    backup_schedule: str = ""  # cron 定时备份（已废弃，改为前端活跃式自动备份；保留字段兼容旧配置）
     backup_retention: str = "7d,4w,3m"
     backup_max_bytes: int = 10 * 1024 * 1024
     backup_verify: bool = True
+    auto_backup_interval_minutes: int = 30  # 活跃式自动备份间隔（默认 30 分钟，可前端修改）
+    auto_backup_enabled: bool = True  # 活跃式自动备份开关（前端滑动开关，持久化到 settings.json）
 
     # ---- 索引性能 ----
     index_batch_size: int = 200
     index_workers: int = 2
     jieba_userdict: str = ""  # jieba 自定义词典路径（如 data/userdict.txt，空 = 不加载）
 
+    @staticmethod
+    def _split_csv(value: str) -> list[str]:
+        """逗号分隔配置 → 去空白列表（S7：三段 split 收敛为公共方法）。"""
+        return [item.strip() for item in value.split(",") if item.strip()]
+
     @property
     def ignore_dirs_list(self) -> list[str]:
-        return [d.strip() for d in self.ignore_dirs.split(",") if d.strip()]
+        return self._split_csv(self.ignore_dirs)
 
     @property
     def ignore_files_list(self) -> list[str]:
-        return [f.strip() for f in self.ignore_files.split(",") if f.strip()]
+        return self._split_csv(self.ignore_files)
 
     @property
     def disallowed_write_dirs_list(self) -> list[str]:
-        return [d.strip() for d in self.disallowed_write_dirs.split(",") if d.strip()]
+        return self._split_csv(self.disallowed_write_dirs)
 
     @property
     def resolved_backup_dir(self) -> Path:
-        return self.backup_dir or (self.data_dir / "backups")
+        """默认 {项目根}/backups（Docker 部署把宿主卷挂到 /app/backups 即可）。"""
+        if self.backup_dir:
+            return self.backup_dir
+        project_root = Path(__file__).resolve().parent.parent
+        return project_root / "backups"
 
     @property
     def llm_resolved_model(self) -> str:

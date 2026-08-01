@@ -15,6 +15,7 @@ from typing import Any
 from app.core.indexer.base import IndexBackend, IndexDoc, IndexRow
 from app.core.markdown import parse as parse_markdown
 from app.core.markdown import strip_comment
+from app.core.textcodec import safe_decode
 from app.core.vault import Vault, VaultWatcher
 
 logger = logging.getLogger("obsidian-agent.indexer.service")
@@ -28,6 +29,11 @@ class IndexService:
         self.backend = backend
         self.watcher: VaultWatcher | None = None
         self._building = False
+
+    @property
+    def building(self) -> bool:
+        """索引是否正在构建（供 API 层只读检查，避免直接访问私有字段）。"""
+        return self._building
 
     # ---------- 文档转换 ----------
 
@@ -117,6 +123,7 @@ class IndexService:
         return {
             "state": "building" if self._building else "ready",
             "totalFiles": self.backend.total_docs(),
+            "vaultFiles": len(self.vault.walk_all()),
             "lastFullAt": self.backend.last_full_at(),
             "backend": self.backend.name,
         }
@@ -129,12 +136,9 @@ class IndexService:
 
 
 def _safe_decode(data: bytes) -> str | None:
-    for enc in ("utf-8-sig", "utf-8", "gb18030"):
-        try:
-            return data.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return None
+    """S5：解码降级统一到 textcodec.safe_decode（与 vault 共用）。"""
+    r = safe_decode(data)
+    return r[0] if r else None
 
 
 def _tokenize_fields(*fields: str) -> str:

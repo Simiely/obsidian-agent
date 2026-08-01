@@ -23,6 +23,7 @@ def client(tmp_path: Path):
     settings = Settings(
         vault_path=root,
         data_dir=tmp_path / "data",
+        backup_dir=tmp_path / "backups",
         watch_enabled=False,
         backup_schedule="",
     )
@@ -152,9 +153,11 @@ def test_backup_flow(client: TestClient) -> None:
     # history
     h = client.get("/api/backup/history", params={"path": "检索方案.md"}).json()
     assert any(v["source"] == "snapshot" for v in h["versions"])
-    # 删除快照
-    assert client.delete(f"/api/backup/{snap_id}").status_code == 200
-    assert client.get("/api/backup/list").json()["snapshots"] == []
+    # 删除快照（异步：202 立即返回，后台线程清理，轮询直到消失）
+    r = client.delete(f"/api/backup/{snap_id}")
+    assert r.status_code == 202
+    assert r.json()["async"] is True
+    _wait_snapshots_gone(client, snap_id)
 
 
 def test_backup_restore_requires_confirm(client: TestClient) -> None:
@@ -175,6 +178,17 @@ def _wait_snapshots(client: TestClient, expected: int, timeout: float = 15.0) ->
     raise AssertionError("快照未在超时内创建")
 
 
+def _wait_snapshots_gone(client: TestClient, snap_id: str, timeout: float = 30.0) -> None:
+    """等待指定快照从列表消失（异步删除完成）。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        snaps = client.get("/api/backup/list").json()["snapshots"]
+        if all(s["id"] != snap_id for s in snaps):
+            return
+        time.sleep(0.2)
+    raise AssertionError(f"快照 {snap_id} 未在超时内删除")
+
+
 # ---------- auth ----------
 
 
@@ -185,6 +199,7 @@ def test_auth_required_when_token_set(tmp_path: Path) -> None:
     settings = Settings(
         vault_path=root,
         data_dir=tmp_path / "data",
+        backup_dir=tmp_path / "backups",
         watch_enabled=False,
         backup_schedule="",
         auth_token="secret123",

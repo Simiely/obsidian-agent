@@ -18,18 +18,29 @@ class SafetyError(Exception):
     """安全校验失败（Agent 写操作被拒）。"""
 
 
+def check_write_rules(settings: Settings, rel: str) -> None:
+    """共享白名单规则（API 层与 Agent 层唯一实现）：禁写目录 + 隐藏路径。
+
+    - 不检查路径越界/格式（由 vault.resolve_safe_path 统一负责，语义区分）
+    - 不要求文件存在（新增文件也走此校验）
+    - 违反任一规则抛 SafetyError
+    """
+    parts = Path(rel).parts
+    for d in settings.disallowed_write_dirs_list:
+        if d in parts:
+            raise SafetyError(f"禁止写入目录: {d}")
+    # 隐藏目录/文件：`.` `..` 是相对路径导航符，不算隐藏路径（越界由 vault 统一报 422）
+    if any(p.startswith(".") and p not in (".", "..") for p in parts):
+        raise SafetyError("禁止写入隐藏目录/文件")
+
+
 def check_writable(vault: Vault, settings: Settings, rel: str) -> None:
     """路径白名单校验：越界 / 非 md / 禁写目录 / 隐藏目录 / 存在性（坑 #7、#1）。"""
     try:
         vault.resolve_safe_path(rel, md_only=True)  # 先做格式/越界校验（不要求存在）
     except PathNotAllowed as e:
         raise SafetyError(f"路径非法: {e}") from e
-    parts = Path(rel).parts
-    for d in settings.disallowed_write_dirs_list:
-        if d in parts:
-            raise SafetyError(f"禁止写入目录: {d}")
-    if any(p.startswith(".") for p in parts):
-        raise SafetyError("禁止写入隐藏目录/文件")
+    check_write_rules(settings, rel)  # 共享白名单规则（唯一实现）
     if not (vault.root / rel).is_file():
         raise SafetyError(f"文件不存在: {rel}")
 

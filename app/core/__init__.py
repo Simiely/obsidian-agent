@@ -1,3 +1,1 @@
-"""领域核心层：不依赖任何 Web 框架。"""
-
-from app.core import backup, vault  # noqa: F401
+"""领域核心层：不依赖任何 Web 框架（S3：去除导入副作用，避免 import 即加载重依赖）。"""

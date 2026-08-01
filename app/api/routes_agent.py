@@ -10,24 +10,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 from app.agent.safety import SafetyError
 from app.agent.service import AgentDeps
-from app.api.deps import AppServices, get_services, require_auth
+from app.api.deps import get_services, require_auth
+from app.schemas import ChatBody, ConfirmBody
+from app.services import AppServices
 
 router = APIRouter(prefix="/api/agent", tags=["agent"], dependencies=[Depends(require_auth)])
-
-
-class ChatBody(BaseModel):
-    message: str
-    contextPath: str | None = None
-    sessionId: str | None = None
-
-
-class ConfirmBody(BaseModel):
-    sessionId: str
-    opId: str
 
 
 @router.post("/chat")

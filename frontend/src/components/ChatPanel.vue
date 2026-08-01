@@ -1,6 +1,7 @@
 <script setup>
 // Agent 对话面板：SSE 流式 + 写操作确认（diff 展示）
 import { ref, nextTick } from "vue";
+import { API } from "../api/endpoints.js";
 import { apiPost } from "../api.js";
 
 const messages = ref([]); // {role: 'user'|'assistant'|'tool', content, opId?, path?, diff?}
@@ -21,7 +22,7 @@ async function send() {
   input.value = "";
   busy.value = true;
   try {
-    const res = await fetch("/api/agent/chat", {
+    const res = await fetch(API.agentChat, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text, sessionId }),
@@ -72,7 +73,7 @@ async function send() {
 
 async function confirmOp(opId, approve) {
   try {
-    const r = await apiPost(approve ? "/api/agent/confirm" : "/api/agent/cancel", {
+    const r = await apiPost(approve ? API.agentConfirm : API.agentCancel, {
       sessionId: sessionId || "anon",
       opId,
     });

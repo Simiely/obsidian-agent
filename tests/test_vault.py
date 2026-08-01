@@ -185,3 +185,81 @@ def test_watcher_debounce(tmp_path: Path) -> None:
 def test_vault_root_must_exist(tmp_path: Path) -> None:
     with pytest.raises(VaultError):
         Vault(root=tmp_path / "nope")
+
+# ---------- 图片资源接口（md 图片显示支持） ----------
+
+
+def test_find_asset_by_name(tmp_path: Path) -> None:
+    """find_asset_by_name：按文件名全库搜索图片（Obsidian wikilink 语义）。"""
+    from app.core.vault import Vault
+
+    (tmp_path / "98_附件").mkdir()
+    img = tmp_path / "98_附件" / "(第 1 天) 测试.webp"
+    img.write_bytes(b"fake-webp")
+    vault = Vault(tmp_path)
+
+    found = vault.find_asset_by_name("(第 1 天) 测试.webp")
+    assert found == img
+
+    # 不存在的文件名
+    assert vault.find_asset_by_name("nope.webp") is None
+    # 非图片扩展名不匹配
+    (tmp_path / "98_附件" / "x.md").write_text("x")
+    assert vault.find_asset_by_name("x.md") is None
+
+
+def test_asset_endpoint(app_client) -> None:
+    """GET /api/vault/asset：返回图片字节流；非法扩展名 422；越界 422。"""
+    # 在测试 vault 造一张图
+    import shutil
+    from pathlib import Path
+
+    vault_root = Path(app_client.app.state.services.settings.vault_path)
+    (vault_root / "assets").mkdir(parents=True, exist_ok=True)
+    img = vault_root / "assets" / "pic.webp"
+    img.write_bytes(b"WEBP-FAKE-BYTES")
+
+    r = app_client.get("/api/vault/asset", params={"path": "assets/pic.webp"})
+    assert r.status_code == 200
+    assert r.content == b"WEBP-FAKE-BYTES"
+
+    # wikilink 文件名全库搜索
+    r2 = app_client.get("/api/vault/asset", params={"path": "pic.webp"})
+    assert r2.status_code == 200
+
+    # 非图片扩展名（vault 内存在的 md）
+    (vault_root / "a.md").write_text("# a")
+    r3 = app_client.get("/api/vault/asset", params={"path": "a.md"})
+    assert r3.status_code == 422
+
+    # 路径遍历
+    r4 = app_client.get("/api/vault/asset", params={"path": "../outside.png"})
+    assert r4.status_code == 422
+
+
+def test_find_md_by_name(tmp_path: Path) -> None:
+    """find_md_by_name：按文件名全库匹配 .md（Obsidian wikilink 语义）。"""
+    from app.core.vault import Vault
+
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "目标文档.md").write_text("# 目标")
+    vault = Vault(tmp_path)
+
+    assert vault.find_md_by_name("目标文档") == "notes/目标文档.md"
+    assert vault.find_md_by_name("目标文档.md") == "notes/目标文档.md"
+    assert vault.find_md_by_name("不存在") is None
+
+
+def test_resolve_md_endpoint(app_client) -> None:
+    """GET /api/vault/resolve-md：按文件名解析；不存在 404。"""
+    from pathlib import Path
+
+    vault_root = Path(app_client.app.state.services.settings.vault_path)
+    (vault_root / "a.md").write_text("# a")
+
+    r = app_client.get("/api/vault/resolve-md", params={"name": "a"})
+    assert r.status_code == 200
+    assert r.json()["path"] == "a.md"
+
+    r2 = app_client.get("/api/vault/resolve-md", params={"name": "nope"})
+    assert r2.status_code == 404

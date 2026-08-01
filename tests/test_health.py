@@ -49,11 +49,17 @@ def test_static_index_served(client: TestClient) -> None:
 
 
 def test_bad_config_placeholder(tmp_path: Path) -> None:
-    """vault 不存在时模块级 app 应是占位（health 500），且 import 不崩。"""
-    import app.main as m
+    """vault 不存在时 create_app 应抛错（占位/拒绝启动），不依赖全局 .env 环境。
 
-    assert m.app is not None
-    from fastapi.testclient import TestClient as TC
+    fix(N6)：原实现读模块级 app（依赖运行环境无 .env 的假设），改为显式构造无效 Settings。
+    """
+    from app.main import create_app
 
-    r = TC(m.app).get("/api/health")
-    assert r.status_code == 500
+    settings = Settings(
+        vault_path=tmp_path / "不存在-vault",
+        data_dir=tmp_path / "data",
+        watch_enabled=False,
+        backup_schedule="",
+    )
+    with pytest.raises(Exception):
+        create_app(settings)

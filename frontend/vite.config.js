@@ -13,7 +13,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // 本地开发：/api 转发到后端（docker compose 后同源，无需代理）
-      "/api": "http://localhost:8080",
+      "/api": "http://localhost:8090",
     },
   },
 });
