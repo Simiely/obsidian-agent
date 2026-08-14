@@ -100,6 +100,7 @@ def test_linux_disks_filters_pseudo_fs(monkeypatch: pytest.MonkeyPatch, tmp_path
     mounts_file.write_text(_fake_mounts(), encoding="utf-8")
     monkeypatch.setattr(pf.os, "name", "posix")
     monkeypatch.setattr(pf, "_PROC_MOUNTS", str(mounts_file))
+    monkeypatch.setattr(pf, "_running_in_docker", lambda: False)  # 裸机场景
     # 模拟挂载点路径存在（真实环境 /mnt/sda1 等存在；测试环境不存在需 mock）
     monkeypatch.setattr(pf.Path, "is_dir", lambda self: True)
 
@@ -116,6 +117,51 @@ def test_linux_disks_filters_pseudo_fs(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert all(p not in paths for p in ("/", "/rom", "/tmp", "/proc", "/sys", "/overlay"))
     # fstype 拼在 name 中（如 "sda1 (ext4)"）
     assert any("ext4" in d["name"] for d in disks)
+
+
+def test_linux_disks_docker_mode_only_mounted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Docker 容器内（/.dockerenv 存在）：只展示 bind 挂载盘，排除根挂载与兜底目录。"""
+    mounts_file = tmp_path / "mounts"
+    mounts_file.write_text(
+        "/dev/sda1 / ext4 rw 0 0\n"
+        "/dev/sda2 /vault ext4 rw 0 0\n"
+        "/dev/sdb1 /data ext4 rw 0 0\n"
+        "overlay /overlay overlay rw 0 0\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pf.os, "name", "posix")
+    monkeypatch.setattr(pf, "_PROC_MOUNTS", str(mounts_file))
+    monkeypatch.setattr(pf.Path, "is_dir", lambda self: True)
+    monkeypatch.setattr(pf, "_running_in_docker", lambda: True)
+
+    disks = pf.linux_disks()
+    paths = [d["path"] for d in disks]
+    assert "/vault" in paths
+    assert "/data" in paths
+    assert "/" not in paths  # 根挂载被排除
+    # 兜底目录（/mnt /media /volume1…）在 Docker 模式不出现
+    assert not any(p in paths for p in ("/mnt", "/media", "/volume1", "/volume2", "/share", "/userdisk"))
+
+
+def test_linux_disks_non_docker_keeps_root_and_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """非 Docker（本地裸机）：根挂载展示 + 常见目录兜底保留（本地部署仍可用）。"""
+    mounts_file = tmp_path / "mounts"
+    mounts_file.write_text("/dev/sda1 / ext4 rw 0 0\n", encoding="utf-8")
+    monkeypatch.setattr(pf.os, "name", "posix")
+    monkeypatch.setattr(pf, "_PROC_MOUNTS", str(mounts_file))
+    monkeypatch.setattr(pf.Path, "is_dir", lambda self: True)
+    monkeypatch.setattr(pf, "_running_in_docker", lambda: False)
+
+    disks = pf.linux_disks()
+    paths = [d["path"] for d in disks]
+    assert "/" in paths  # 根挂载保留
+    # 兜底目录仍出现
+    assert "/mnt" in paths
+    assert "/media" in paths
 
 # ---------- S11：browse_dirs（收敛自 API 层） ----------
 

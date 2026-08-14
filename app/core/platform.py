@@ -86,13 +86,22 @@ def win_disks() -> list[dict[str, str]]:
     return disks
 
 
+def _running_in_docker() -> bool:
+    """是否运行在容器内：Docker 必有 /.dockerenv，podman 有 /run/.containerenv。"""
+    return Path("/.dockerenv").exists() or Path("/run/.containerenv").exists()
+
+
 def linux_disks() -> list[dict[str, str]]:
     """枚举 Linux 真实磁盘挂载点（读 /proc/mounts）。
 
     - 过滤伪文件系统（overlay/tmpfs/proc 等），只留真实磁盘
     - 顶层挂载点（如 /mnt、/media、/volume1）与磁盘挂载点（如 /mnt/sda1、/volume1/vault）
       都返回；名称取最后一段，路径过长时前端会截断
+    - Docker 容器内（/.dockerenv 存在）：只展示通过 volumes bind 进来的业务盘
+      （如 /vault、/data、/mnt/usb1），排除根挂载 / 与常见目录兜底——
+      避免「切换笔记库」列出一堆容器内部挂载；本地裸机部署仍保留全量枚举 + 兜底
     """
+    in_docker = _running_in_docker()
     disks: list[dict[str, str]] = []
     mounts: list[tuple[Path, str]] = []
     try:
@@ -109,6 +118,8 @@ def linux_disks() -> list[dict[str, str]]:
                 mnt_path = Path(mnt)
                 if not mnt_path.is_dir():
                     continue
+                if in_docker and mnt_path == Path("/"):
+                    continue  # Docker 模式：排除根挂载，只留 bind 进来的业务盘
                 mounts.append((mnt_path, fstype))
     except OSError:  # pragma: no cover - 非 Linux
         return disks
@@ -129,11 +140,12 @@ def linux_disks() -> list[dict[str, str]]:
             }
         )
         seen.add(str(mnt_path))
-    # 常见数据挂载父目录兜底（某些系统挂载点不在 /proc/mounts 顶层可见）
-    for extra in ("/mnt", "/media", "/volume1", "/volume2", "/share", "/data", "/userdisk"):
-        p = Path(extra)
-        if p.is_dir() and str(p) not in seen:
-            disks.append({"name": extra, "path": extra, "icon": "💾", "kind": "disk"})
+    # 常见数据挂载父目录兜底（仅本地裸机；Docker 内只认 /proc/mounts 里的真实挂载点）
+    if not in_docker:
+        for extra in ("/mnt", "/media", "/volume1", "/volume2", "/share", "/data", "/userdisk"):
+            p = Path(extra)
+            if p.is_dir() and str(p) not in seen:
+                disks.append({"name": extra, "path": extra, "icon": "💾", "kind": "disk"})
     return disks
 
 
