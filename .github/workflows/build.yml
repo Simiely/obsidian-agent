@@ -28,8 +28,21 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Install dependencies
         run: pip install -e ".[dev]"
+
+      # frontend/dist 被 .gitignore 排除，干净的 checkout 上不存在；
+      # test_static_index_served 依赖它，必须先构建前端再跑 pytest
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
 
       - name: Run tests
         run: pytest -q

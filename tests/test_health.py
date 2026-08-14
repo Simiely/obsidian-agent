@@ -43,6 +43,11 @@ def test_version(client: TestClient) -> None:
 
 
 def test_static_index_served(client: TestClient) -> None:
+    # frontend/dist 被 .gitignore 排除，本地未执行 `cd frontend && npm run build` 时不存在。
+    # 该测试仅在 dist 存在时有意义（CI 已强制构建，不会真跳过）；本地开发不构建前端也可跑 pytest。
+    dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    if not dist.is_dir():
+        pytest.skip("frontend/dist 未构建，请先执行 cd frontend && npm run build")
     r = client.get("/")
     assert r.status_code == 200
     assert "Obsidian Agent" in r.text
