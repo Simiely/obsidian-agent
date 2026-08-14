@@ -63,22 +63,26 @@ docker compose up -d
 ```
 obsidian-agent/
 ├── README.md               # 本文档（总导航）
-├── docs/                   # 📚 文档体系（9 篇，见上表）
-├── docker-compose.yml      # 容器编排（app + 可选 meilisearch / ignis）
+├── docs/                   # 📚 文档体系（10 篇，见上表）
+├── docker-compose.yml      # 容器编排（web 服务，预构建镜像部署）
 ├── Dockerfile              # 多阶段构建（前端 + Python 后端）
 ├── .env.example            # 环境变量模板
 ├── app/                    # Python 后端（FastAPI）
-│   ├── main.py             # 应用入口
+│   ├── main.py             # 应用入口（create_app 工厂）
 │   ├── config.py           # 配置加载（pydantic-settings）
 │   ├── core/               # 领域核心（不依赖 Web 框架）
 │   │   ├── vault.py        #   vault 访问：树/读写/监听/忽略规则
 │   │   ├── markdown.py     #   md 解析：frontmatter/wikilink/结构
-│   │   └── indexer/        #   索引模块（可插拔）
-│   │       ├── base.py     #     索引抽象接口
-│   │       ├── fts5.py     #     SQLite FTS5 + jieba 实现（默认）
-│   │       └── meili.py    #     Meilisearch 实现（可选）
-│   │   └── search.py       #   检索服务（高亮/分页/定位）
-│   │   └── backup.py       #   快照备份/定时/保留/恢复
+│   │   ├── textcodec.py    #   编码解码统一降级
+│   │   ├── indexer/        #   索引模块（可插拔）
+│   │   │   ├── base.py     #     索引抽象接口
+│   │   │   ├── fts5.py     #     SQLite FTS5 + jieba 实现（默认）
+│   │   │   └── service.py  #     索引服务（全量/增量/监听）
+│   │   ├── search.py       #   检索服务（高亮/分页/定位）
+│   │   ├── backup/         #   快照备份包：engine/runner/scheduler/specs/fsutil
+│   │   ├── platform.py     #   平台探测：磁盘枚举（Windows 盘符 / Linux 挂载点）/ 库检测
+│   │   ├── runtime.py      #   运行时配置持久化与热切换
+│   │   └── services.py     #   服务装配（AppServices）
 │   ├── agent/              # 🤖 AI Agent（Pydantic AI）
 │   │   ├── llm/            #   模型配置层（DeepSeek/OpenAI/Kimi/Ollama）
 │   │   ├── tools/          #   类型化工具：读/写/搜/列目录
@@ -88,11 +92,11 @@ obsidian-agent/
 ├── frontend/               # 🖥 前端（Vue3 + Vite，markdown-it 渲染 Obsidian 语法）
 │   └── src/
 │       ├── App.vue         #   编排层（业务全在 composables）
-│       ├── components/     #   视图组件（DocView / FileTree / BackupPanel / ...）
+│       ├── components/     #   视图组件（DocView / FileTree / BackupPanel / DirPicker / ...）
 │       ├── use*.js         #   composables（useVaultDocs / useHashRouter / useToc / ...）
 │       ├── api/            #   后端接口封装
 │       └── md.js + mdEnhance.js   # 渲染 + DOM 增强分离
-├── data/                   # 索引与备份数据（Docker volume）
+├── data/                   # 索引与运行时配置（Docker volume）
 └── tests/                  # pytest 测试（含中文检索/Obsidian 语法用例）
 ```
 
@@ -102,14 +106,16 @@ obsidian-agent/
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| **规划** | 文档体系、架构设计、任务清单 | ✅ 当前阶段 |
-| M0 | Docker 骨架（compose + 镜像 + 配置） | ⬜ 待开发 |
-| M1 | Vault 访问核心层 | ⬜ 待开发 |
-| M2 | 全文索引与检索 | ⬜ 待开发 |
-| M3 | 后端 API 层 | ⬜ 待开发 |
-| M4 | 前端浏览页面 | ⬜ 待开发 |
-| M5 | AI Agent 集成 | ⬜ 待开发 |
-| M6 | 测试、文档完善、v0.1.0 发布 | ⬜ 待开发 |
+| **规划** | 文档体系、架构设计、任务清单 | ✅ 已完成 |
+| M0 | Docker 骨架（compose + 镜像 + 配置） | ✅ 已完成 |
+| M1 | Vault 访问核心层 | ✅ 已完成 |
+| M2 | 全文索引与检索 | ✅ 已完成 |
+| M3 | 后端 API 层 | ✅ 已完成 |
+| M4 | 前端浏览页面 | ✅ 已完成 |
+| M5 | AI Agent 集成 | ✅ 已完成 |
+| M6 | 测试、文档完善、v0.1.0 发布 | ✅ 已完成 |
+
+> 当前处于持续维护阶段：CI 自动构建推送镜像（`ghcr.io/simiely/obsidian-agent:latest`），详见 [docs/07-更新日志.md](docs/07-更新日志.md)。
 
 详细里程碑见 [docs/02-架构设计.md](docs/02-架构设计.md#路线图) 与 [docs/07-更新日志.md](docs/07-更新日志.md)。
 
